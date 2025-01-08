@@ -3,6 +3,17 @@
 #include <Encoder.h>
 #include <Servo.h>
 
+// Prototypes declaration
+int getCurrentPulses();
+int getCurrentPanel();
+void setCurrentPulses(int pulses);
+void setCurrentPanel(int panel);
+int getTargetPulses();
+String buildDebugString();
+String buildDebugJson(String message);
+void sendHeaders();
+int calculateEaseOutSpeed();
+int getRemainingPulses();
 // TODO MECANIQUE :
 //- Faciliter l'ajustement de la roue optique
 //   - en roue libre ?
@@ -23,8 +34,10 @@
 //- Ajouter un état "OFF" pour le servo qu'on peut toggler pour la sécurité
 //- Remplacer service setCurrentPanel par un service calibration qui met l'état indéfini sur le panel courant (+ gérer panel courant indéfini tourne un tour jusqu'à déclencher l'optique)
 //- Du coup démarrer en "indéfini" mais ne pas bouger, et à la première commande, aller jusqu'à l'optique au minimum
+// TODO setTargetPanel ?
+//TODO NORMALISER la vitesse du moteur !!!!!!
 
-//#define DEBUG_ENABLED 1
+// #define DEBUG_ENABLED 1
 
 // Pins configuration
 #define SERVO_PIN D3
@@ -36,7 +49,7 @@
 const int PANELS_COUNT = 62;              // Nombre total de panneaux
 const int PULSES_PER_PANEL = 2;           // Ajuste pour 4 impulsions par panneau
 const bool OPTICAL_DETECTED_STATE = LOW;  // Constante qui définit l'état du capteur optique (LOW ou HIGH) lorsqu'il est au panneau 0
-const int DEFAULT_PANEL = 3;              // Panneau situé en position 0 selon capteur optique
+const int DEFAULT_PANEL = 3;              // Panel at optical sensor position
 const int ENCODER_DIRECTION_SIGN = -1;
 
 // Servo configuration
@@ -48,7 +61,7 @@ static_assert(RUN_SPEED > STOP_SPEED, "RUN_SPEED must be greater than STOP_SPEED
 // Globals
 ESP8266WebServer server(80);
 Encoder encoder(ENCODER_PIN_A, ENCODER_PIN_B);
-int targetPanel = 0;   // Panneau cible
+int targetPanel = 0;  // Panneau cible //TODO utiliser un targetPulses et virer quasi tous les appels get/setPanel sauf depuis l'api ou les debug
 
 // Setup Wi-Fi
 const char* ssid = "ap8F2EOjLm";
@@ -83,7 +96,10 @@ String buildDebugString() {
                        " currentPulses:" + String(getCurrentPulses()) +
                        " targetPulses:" + String(getTargetPulses()) +
                        " rawPulses:" + String(encoder.read()) +
-                       " optical:" + String(digitalRead(OPTICAL_SENSOR_PIN));
+                       " optical:" + String(digitalRead(OPTICAL_SENSOR_PIN)) +
+                       " distance: " + String(getRemainingPulses()) +
+                       " speed: " + String(calculateEaseOutSpeed());
+
   return debugString;
 }
 
@@ -100,7 +116,7 @@ String buildDebugJson(String message) {
   return debugJson;
 }
 
-//#ifdef DEBUG_ENABLED
+// #ifdef DEBUG_ENABLED
 unsigned long lastDebugPrintTime = 0;
 void serialPrintThrottled(String message) {
   unsigned long currentTime = millis();
@@ -109,7 +125,7 @@ void serialPrintThrottled(String message) {
     lastDebugPrintTime = currentTime;
   }
 }
-//#endif
+// #endif
 
 // Functions
 
@@ -154,7 +170,7 @@ void handleSetCurrentPanel() {
   sendHeaders();
   if (server.hasArg("panel")) {
     int value = server.arg("panel").toInt();
-    setCurrentPanel(value); //Will set encoder accordingly and keep value within limits
+    setCurrentPanel(value);  // Will set encoder accordingly and keep value within limits
     int currentPanel = getCurrentPanel();
     targetPanel = currentPanel;
     server.send(200, "text/plain", buildDebugJson("Current panel set to " + String(currentPanel)));
@@ -171,36 +187,66 @@ void handleStop() {
   server.send(200, "text/plain", buildDebugJson("Stopped. Current panel set to " + String(currentPanel)));
 }
 
+int getRemainingPulses() {
+  int currentPulses = getCurrentPulses();
+  int targetPulses = getTargetPulses();
+  int totalPulses = PANELS_COUNT * PULSES_PER_PANEL;
+  int distance = (targetPulses - currentPulses + totalPulses) % totalPulses;  // Calcule la distance en avance (horaire) //TODO on doit tjrs avoir du positif ici asserter ça
+  return distance;
+}
 
+float easeOutExpo(float x) {
+  return (x == 1) ? 1 : 1 - pow(2, -10 * x);  // Calcul de l'expo //TODO https://easings.net/
+}
 
-//TODO setTargetPanel ?
+int calculateEaseOutSpeed() {
+  int remainingPulses = getRemainingPulses();
+
+  if (remainingPulses < PULSES_PER_PANEL) {
+    return STOP_SPEED;
+  } else if (remainingPulses == PULSES_PER_PANEL) {
+    return RUN_SPEED - 30;
+  } else if (remainingPulses == PULSES_PER_PANEL * 2) {
+    return RUN_SPEED - 20;
+  } else if (remainingPulses == PULSES_PER_PANEL * 3) {
+    return RUN_SPEED - 10; //TODO pas safe si ça devient moins que 90 et pas super élégant
+  } else {
+    return RUN_SPEED;
+  }
+}
 
 // Non-blocking move logic
 void updateServoMovement() {
-  int currentPulses = getCurrentPulses();
+  int speed = calculateEaseOutSpeed();
+  servo.write(speed);  // Ajuste la vitesse du servo
+
+  /*int currentPulses = getCurrentPulses();
   int targetPulses = getTargetPulses();
 
   // Vérifie si la position cible est atteinte (le nombre de pulses restantes est 1 de moins que le nombre de pulses par panneau)
   if (abs(currentPulses - targetPulses) < PULSES_PER_PANEL) {
+    // TODO MARCHE PAS lorsqu'on veut avancer que d'un panel ! car on est déjà à 1 step de différence de la cible il y a une différence entre la distance vers la cible pour démarrer et pour s'arrêter
+
     servo.write(STOP_SPEED);  // Arrête le servo si la cible est atteinte
   } else {
-    servo.write(RUN_SPEED);  // Continue à faire tourner le servo
-  }
+    int speed = calculateEaseOutSpeed(currentPulses, targetPulses);
+    servo.write(speed);  // Ajuste la vitesse du servo
+  }*/
 }
 
 // Fonction qui vérifie l'état du capteur optique
 void checkOpticalSensor() {
   int sensorState = digitalRead(OPTICAL_SENSOR_PIN);
   if (sensorState == OPTICAL_DETECTED_STATE) {
-    setCurrentPanel(DEFAULT_PANEL);                     // Réinitialiser le panneau actuel à 0 lorsque le capteur détecte le panneau 0 //TODO à voir mais c'est pas nécessaire de setter ce compteur si on fait toujours le calcul dans la boucle du servo
-    
-        // TODO au cas où l'optique détecte le panneau sur plusieurs steps, ne pas setter le current panel à 0 tant qu'on est pas au moins au 2ème panel 
-        //- Sinon ça détecte l'optique au step 0
-        //- ça met l'encodeur à 0
-        //- ça détecte au step 1
-        //- ça remet l'encodeur à 0
-        //- ça détecte pas au step 1 suivant (qui serait le 2) et on a un décalage
-        //- à voir aussi si nécessite pas un ajustement mécanique
+    setCurrentPanel(DEFAULT_PANEL);  // Réinitialiser le panneau actuel à 0 lorsque le capteur détecte le panneau 0 //TODO à voir mais c'est pas nécessaire de setter ce compteur si on fait toujours le calcul dans la boucle du servo
+
+    // TODO au cas où l'optique détecte le panneau sur plusieurs steps, ne pas setter le current panel à 0 tant qu'on est pas au moins au 2ème panel
+    //- Sinon ça détecte l'optique au step 0
+    //- ça met l'encodeur à 0
+    //- ça détecte au step 1
+    //- ça remet l'encodeur à 0
+    //- ça détecte pas au step 1 suivant (qui serait le 2) et on a un décalage
+    //- à voir aussi si nécessite pas un ajustement mécanique
 
     serialPrintThrottled("Panneau 0 détecté, currentPanel réinitialisé à 0");
   }
@@ -241,8 +287,7 @@ void loop() {
   server.handleClient();  // Handle incoming HTTP requests
   checkOpticalSensor();   // Vérifie l'état du capteur optique
   updateServoMovement();  // Manage the servo's movement
-//#ifdef DEBUG_ENABLED
+                          // #ifdef DEBUG_ENABLED
   serialPrintThrottled(buildDebugString());
-//#endif
+  // #endif
 }
-
