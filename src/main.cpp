@@ -21,7 +21,7 @@
 // TODO SOFTWARE :
 //- Sécurités si valeur hors norme, stoppe servo
 //- Ajouter un état "OFF" pour le servo qu'on peut toggler pour la sécurité
-//- Remplacer service setCurrentPanel par un service qui met l'état indéfini sur le panel courant (+ gérer panel courant indéfini tourne un tour jusqu'à déclencher l'optique)
+//- Remplacer service setCurrentPanel par un service calibration qui met l'état indéfini sur le panel courant (+ gérer panel courant indéfini tourne un tour jusqu'à déclencher l'optique)
 //- Du coup démarrer en "indéfini" mais ne pas bouger, et à la première commande, aller jusqu'à l'optique au minimum
 
 //#define DEBUG_ENABLED 1
@@ -42,7 +42,7 @@ const int ENCODER_DIRECTION_SIGN = -1;
 // Servo configuration
 Servo servo;
 const int STOP_SPEED = 90;  // Valeur pour arrêter le servo
-const int RUN_SPEED = 120;  // Vitesse du servo pour avancer (91-180) 140 c'est bien
+const int RUN_SPEED = 140;  // Vitesse du servo pour avancer (91-180) 140 c'est bien
 static_assert(RUN_SPEED > STOP_SPEED, "RUN_SPEED must be greater than STOP_SPEED");
 
 // Globals
@@ -180,8 +180,8 @@ void updateServoMovement() {
   int currentPulses = getCurrentPulses();
   int targetPulses = getTargetPulses();
 
-  // Vérifie si la position cible est atteinte
-  if (currentPulses == targetPulses) {
+  // Vérifie si la position cible est atteinte (le nombre de pulses restantes est 1 de moins que le nombre de pulses par panneau)
+  if (abs(currentPulses - targetPulses) < PULSES_PER_PANEL) {
     servo.write(STOP_SPEED);  // Arrête le servo si la cible est atteinte
   } else {
     servo.write(RUN_SPEED);  // Continue à faire tourner le servo
@@ -194,7 +194,13 @@ void checkOpticalSensor() {
   if (sensorState == OPTICAL_DETECTED_STATE) {
     setCurrentPanel(DEFAULT_PANEL);                     // Réinitialiser le panneau actuel à 0 lorsque le capteur détecte le panneau 0 //TODO à voir mais c'est pas nécessaire de setter ce compteur si on fait toujours le calcul dans la boucle du servo
     
-        // TODO VU QUE MON ENCODEUR TOURNE A L'ENVERS, ça joue pas quand on sette le compteur à 3 positif
+        // TODO au cas où l'optique détecte le panneau sur plusieurs steps, ne pas setter le current panel à 0 tant qu'on est pas au moins au 2ème panel 
+        //- Sinon ça détecte l'optique au step 0
+        //- ça met l'encodeur à 0
+        //- ça détecte au step 1
+        //- ça remet l'encodeur à 0
+        //- ça détecte pas au step 1 suivant (qui serait le 2) et on a un décalage
+        //- à voir aussi si nécessite pas un ajustement mécanique
 
     serialPrintThrottled("Panneau 0 détecté, currentPanel réinitialisé à 0");
   }
