@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CFF Flip</title>
+    <style>
+        
+        .container {
+            max-width: 500px;
+            margin: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>CFF Flip</h1>
+
+        <label for="citySelect">Select a city:</label>
+        <select id="citySelect" onchange="moveToPanelByCity()">
+            <!-- Options will be populated by JavaScript -->
+        </select>
+
+        <h2>Get Current Panel</h2>
+        <button onclick="getCurrentPanel()">Get Current Panel</button>
+        <p id="currentPanel">Current Panel: -</p>
+
+        <h2>Move to Specific Panel</h2>
+        <input type="number" id="moveToPanelInput" placeholder="Enter Panel Number" value="0">
+        <button onclick="moveToPanel()">Move to Panel</button>
+
+        <h2>Advance Panels</h2>
+        <input type="number" id="advancePanelsInput" placeholder="Enter Count" value="5">
+        <button onclick="advancePanels()">Advance Panels</button>
+
+        <h2>Set Current Panel</h2>
+        <input type="number" id="setCurrentPanelInput" placeholder="Enter Current Panel" value="0">
+        <button onclick="setCurrentPanel()">Set Current Panel</button>
+
+        <h2>Stop Servo</h2>
+        <button onclick="stopServo()">Stop Servo</button>
+        
+        <h2>Get debug</h2>
+        <button onclick="getDebug()">Get debug</button>
+
+        <p id="responseMessage"></p>
+    </div>
+
+    <script>
+        const API_BASE_URL = 'http://192.168.0.222';
+        const cities = [
+            'Sektor A', 
+            'Sektor B', 
+            'Sektor C', 
+            'Sektor D', 
+            'Feldkirch',
+            'Bellinzona',
+            'Biel',
+            'Bern',
+            'Brig',
+            'Basel',
+            'Buchs SG',
+            'Chur',
+            'Chiasso',
+            'Arth-Goldau',
+            'Genève',
+            'Göschenen',
+            'Interlaken',
+            'Lugano',
+            'Locarno',
+            'Lausanne',
+            'Zagreb',
+            'Olten',
+            'Romanshorn',
+            'Rorschach',
+            'St. Gallen',
+            'Schaffhausen',
+            'Konstanz',
+            'Winterthur',
+            'Amsterdam',
+            'Ancona',
+            'Praha',
+            'Bruxelles',
+            'Budapest',
+            'Livorno',
+            'Genova',
+            'Graz',
+            'Hamburg',
+            'Innsbruck',
+            'Klagenfurt',
+            'Leipzig Desden Praha',
+            'Milano',
+            'München',
+            'Napoli',
+            'Nürnberg',
+            'Berlin',
+            'Paris',
+            'Roma',
+            'La Spezia',
+            'Venezia',
+            'Ventimiglia',
+            'Wien',
+            'Oesterreich',
+            'Deutschland',
+            'France',
+            'Italia',
+            'Singen',
+            'Ausland',
+            'Nicht einsteigen',
+            'Reservierte Wagen',
+            'Beachten',
+            'Stuttgart',
+            ''
+            ];
+
+        // Populate the select element with city options
+        const citySelect = document.getElementById('citySelect');
+        cities.forEach((city, index) => {
+            const option = document.createElement('option');
+            option.value = index;
+            option.textContent = city;
+            citySelect.appendChild(option);
+        });
+
+        async function apiRequest(endpoint, method = 'GET', params = {}) {
+            let url = `${API_BASE_URL}${endpoint}`;
+
+            if (method === 'GET' && Object.keys(params).length) {
+                url += '?' + new URLSearchParams(params);
+            }
+
+            const options = {
+                method,
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+            };
+
+            if (method === 'POST') {
+                options.body = new URLSearchParams(params);
+            }
+
+            try {
+                const response = await fetch(url, options);
+                const data = await response.text();
+                document.getElementById('responseMessage').textContent = `Response: ${data}`;
+                return data;
+            } catch (error) {
+                document.getElementById('responseMessage').textContent = `Error: ${error.message}`;
+                console.error(error);
+            }
+        }
+
+        function moveToPanelByCity() {
+            const cityIndex = document.getElementById('citySelect').value;
+            apiRequest('/moveToPanel', 'POST', { panel: cityIndex });
+        }
+
+        function getCurrentPanel() {
+            apiRequest('/getCurrentPanel').then(data => {
+                document.getElementById('currentPanel').textContent = `Current Panel: ${data}`;
+            });
+        }
+
+        function moveToPanel() {
+            const panel = document.getElementById('moveToPanelInput').value;
+            if (!panel) {
+                alert('Please enter a panel number.');
+                return;
+            }
+            apiRequest('/moveToPanel', 'POST', { panel });
+        }
+
+        function advancePanels() {
+            const count = document.getElementById('advancePanelsInput').value;
+            if (!count) {
+                alert('Please enter a count.');
+                return;
+            }
+            apiRequest('/advancePanels', 'POST', { count });
+        }
+
+        function setCurrentPanel() {
+            const panel = document.getElementById('setCurrentPanelInput').value;
+            if (!panel) {
+                alert('Please enter a current panel number.');
+                return;
+            }
+            apiRequest('/setCurrentPanel', 'POST', { panel });
+        }
+
+        function stopServo() {
+            apiRequest('/stop');
+        }
+
+        function getDebug() {
+            apiRequest('/getDebug');
+        }
+    </script>
+</body>
+</html>
