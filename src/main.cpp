@@ -171,17 +171,12 @@ void handleAdvancePanels() {
   }
 }
 
-void handleSetCurrentPanel() {
+void handleCalibrate() {
   sendHeaders();
-  if (server.hasArg("panel")) {
-    int value = server.arg("panel").toInt();
-    setCurrentPanel(value);  // Will set encoder accordingly and keep value within limits
-    int currentPanel = getCurrentPanel();
-    targetPanel = currentPanel;
-    server.send(200, "text/plain", buildDebugJson("Current panel set to " + String(currentPanel)));
-  } else {
-    server.send(400, "text/plain", "Missing 'panel' argument");
-  }
+  setCurrentPanel(DEFAULT_PANEL);  // Set current panel to default
+  targetPanel = (DEFAULT_PANEL - 1 + PANELS_COUNT) % PANELS_COUNT;  // Set target panel to the one before
+  motorEnabled = true;  // Enable motor for calibration
+  server.send(200, "text/plain", buildDebugJson("Calibration started. Current panel set to " + String(DEFAULT_PANEL) + ", target panel set to " + String(targetPanel)));
 }
 
 void handleStop() {
@@ -263,11 +258,11 @@ void setup() {
   Serial.println(WiFi.localIP());
 
   // REST API routes
-  server.on("/getCurrentPanel", HTTP_GET, handleGetCurrentPanel);
+  server.on("/getCurrentPanel", HTTP_GET, handleGetCurrentPanel); //TODO renommer en virant les gets et les mots panel des actions
   server.on("/getDebug", HTTP_GET, handleGetDebug);
   server.on("/moveToPanel", HTTP_POST, handleMoveToPanel);
   server.on("/advancePanels", HTTP_POST, handleAdvancePanels);
-  server.on("/setCurrentPanel", HTTP_POST, handleSetCurrentPanel);
+  server.on("/calibrate", HTTP_GET, handleCalibrate);
   server.on("/stop", HTTP_GET, handleStop);
   server.begin();
   Serial.println("HTTP server started");

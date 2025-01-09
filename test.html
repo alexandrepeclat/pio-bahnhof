@@ -4,13 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CFF Flip</title>
-    <style>
-        
-        .container {
-            max-width: 500px;
-            margin: auto;
-        }
-    </style>
 </head>
 <body>
     <div class="container">
@@ -21,9 +14,11 @@
             <!-- Options will be populated by JavaScript -->
         </select>
 
-        <h2>Get Current Panel</h2>
+        <h2>Actions</h2>
+        <button onclick="calibrate()">Calibrate</button>
+        <button onclick="stopServo()">Stop Servo</button>
+        <button onclick="getDebug()">Get debug</button>
         <button onclick="getCurrentPanel()">Get Current Panel</button>
-        <p id="currentPanel">Current Panel: -</p>
 
         <h2>Move to Specific Panel</h2>
         <input type="number" id="moveToPanelInput" placeholder="Enter Panel Number" value="0">
@@ -32,16 +27,6 @@
         <h2>Advance Panels</h2>
         <input type="number" id="advancePanelsInput" placeholder="Enter Count" value="5">
         <button onclick="advancePanels()">Advance Panels</button>
-
-        <h2>Set Current Panel</h2>
-        <input type="number" id="setCurrentPanelInput" placeholder="Enter Current Panel" value="0">
-        <button onclick="setCurrentPanel()">Set Current Panel</button>
-
-        <h2>Stop Servo</h2>
-        <button onclick="stopServo()">Stop Servo</button>
-        
-        <h2>Get debug</h2>
-        <button onclick="getDebug()">Get debug</button>
 
         <p id="responseMessage"></p>
     </div>
@@ -180,13 +165,8 @@
             apiRequest('/advancePanels', 'POST', { count });
         }
 
-        function setCurrentPanel() {
-            const panel = document.getElementById('setCurrentPanelInput').value;
-            if (!panel) {
-                alert('Please enter a current panel number.');
-                return;
-            }
-            apiRequest('/setCurrentPanel', 'POST', { panel });
+        function calibrate() {
+            apiRequest('/calibrate');
         }
 
         function stopServo() {
