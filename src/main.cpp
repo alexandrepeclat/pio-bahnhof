@@ -12,8 +12,9 @@ int getTargetPulses();
 String buildDebugString();
 String buildDebugJson(String message);
 void sendHeaders();
-int calculateEaseOutSpeed();
+float calculateEaseOutSpeed();
 int getRemainingPulses();
+void setMotorSpeed(float normalizedSpeed);
 // TODO MECANIQUE :
 //- Faciliter l'ajustement de la roue optique
 //   - en roue libre ?
@@ -35,9 +36,8 @@ int getRemainingPulses();
 //- Remplacer service setCurrentPanel par un service calibration qui met l'état indéfini sur le panel courant (+ gérer panel courant indéfini tourne un tour jusqu'à déclencher l'optique)
 //- Du coup démarrer en "indéfini" mais ne pas bouger, et à la première commande, aller jusqu'à l'optique au minimum
 // TODO setTargetPanel ?
-//TODO NORMALISER la vitesse du moteur !!!!!!
 
-// #define DEBUG_ENABLED 1
+#define DEBUG_ENABLED 1
 
 // Pins configuration
 #define SERVO_PIN D3
@@ -56,12 +56,13 @@ const int ENCODER_DIRECTION_SIGN = -1;
 Servo servo;
 const int STOP_SPEED = 90;  // Valeur pour arrêter le servo
 const int RUN_SPEED = 140;  // Vitesse du servo pour avancer (91-180) 140 c'est bien
-static_assert(RUN_SPEED > STOP_SPEED, "RUN_SPEED must be greater than STOP_SPEED");
+static_assert(RUN_SPEED > 90, "RUN_SPEED must be greater than 90 or everything will break !");
 
 // Globals
 ESP8266WebServer server(80);
 Encoder encoder(ENCODER_PIN_A, ENCODER_PIN_B);
-int targetPanel = 0;  // Panneau cible //TODO utiliser un targetPulses et virer quasi tous les appels get/setPanel sauf depuis l'api ou les debug
+int targetPanel = 0;        // Panneau cible //TODO utiliser un targetPulses et virer quasi tous les appels get/setPanel sauf depuis l'api ou les debug
+bool motorEnabled = false;  // Boolean to enable/disable motor, starts disabled
 
 // Setup Wi-Fi
 const char* ssid = "ap8F2EOjLm";
@@ -90,19 +91,6 @@ int getTargetPulses() {
   return targetPanel * PULSES_PER_PANEL;
 }
 
-String buildDebugString() {
-  String debugString = "currentPanel: " + String(getCurrentPanel()) +
-                       " targetPanel:" + String(targetPanel) +
-                       " currentPulses:" + String(getCurrentPulses()) +
-                       " targetPulses:" + String(getTargetPulses()) +
-                       " rawPulses:" + String(encoder.read()) +
-                       " optical:" + String(digitalRead(OPTICAL_SENSOR_PIN)) +
-                       " distance: " + String(getRemainingPulses()) +
-                       " speed: " + String(calculateEaseOutSpeed());
-
-  return debugString;
-}
-
 String buildDebugJson(String message) {
   String debugJson = "{";
   debugJson += "\"message\":\"" + message + "\",";
@@ -116,7 +104,20 @@ String buildDebugJson(String message) {
   return debugJson;
 }
 
-// #ifdef DEBUG_ENABLED
+#ifdef DEBUG_ENABLED
+String buildDebugString() {
+  String debugString = "currentPanel: " + String(getCurrentPanel()) +
+                       " targetPanel:" + String(targetPanel) +
+                       " currentPulses:" + String(getCurrentPulses()) +
+                       " targetPulses:" + String(getTargetPulses()) +
+                       " rawPulses:" + String(encoder.read()) +
+                       " optical:" + String(digitalRead(OPTICAL_SENSOR_PIN)) +
+                       " distance: " + String(getRemainingPulses()) +
+                       " speed: " + String(calculateEaseOutSpeed());
+
+  return debugString;
+}
+
 unsigned long lastDebugPrintTime = 0;
 void serialPrintThrottled(String message) {
   unsigned long currentTime = millis();
@@ -125,7 +126,7 @@ void serialPrintThrottled(String message) {
     lastDebugPrintTime = currentTime;
   }
 }
-// #endif
+#endif
 
 // Functions
 
@@ -148,6 +149,7 @@ void handleMoveToPanel() {
   if (server.hasArg("panel")) {
     targetPanel = server.arg("panel").toInt();
     targetPanel %= PANELS_COUNT;  // Assure que la cible est dans les limites
+    motorEnabled = true;          // Enable motor on move command
     server.send(200, "text/plain", buildDebugJson("Moving to panel " + String(targetPanel)));
   } else {
     server.send(400, "text/plain", "Missing 'panel' argument");
@@ -160,6 +162,7 @@ void handleAdvancePanels() {
     int advanceCount = server.arg("count").toInt();
     int currentPanel = getCurrentPanel();
     targetPanel = (currentPanel + advanceCount) % PANELS_COUNT;
+    motorEnabled = true;  // Enable motor on advance command
     server.send(200, "text/plain", buildDebugJson("From " + String(currentPanel) + ", Advancing " + String(advanceCount) + " panels to " + String(targetPanel)));
   } else {
     server.send(400, "text/plain", "Missing 'count' argument");
@@ -181,7 +184,8 @@ void handleSetCurrentPanel() {
 
 void handleStop() {
   sendHeaders();
-  servo.write(STOP_SPEED);
+  setMotorSpeed(0);      // Use the centralized function to stop the motor
+  motorEnabled = false;  // Disable motor on stop command
   int currentPanel = getCurrentPanel();
   targetPanel = currentPanel;
   server.send(200, "text/plain", buildDebugJson("Stopped. Current panel set to " + String(currentPanel)));
@@ -199,39 +203,30 @@ float easeOutExpo(float x) {
   return (x == 1) ? 1 : 1 - pow(2, -10 * x);  // Calcul de l'expo //TODO https://easings.net/
 }
 
-int calculateEaseOutSpeed() {
+float calculateEaseOutSpeed() {
   int remainingPulses = getRemainingPulses();
 
-  if (remainingPulses < PULSES_PER_PANEL) {
-    return STOP_SPEED;
+  if (remainingPulses < PULSES_PER_PANEL) {  // TODO parfois j'ai un décalage de 1... peut être même problème que dans l'ancien code commenté...
+    return 0.f;                              // Normalized speed for stop
   } else if (remainingPulses == PULSES_PER_PANEL) {
-    return RUN_SPEED - 30;
+    return 0.7f;
   } else if (remainingPulses == PULSES_PER_PANEL * 2) {
-    return RUN_SPEED - 20;
+    return 0.8f;
   } else if (remainingPulses == PULSES_PER_PANEL * 3) {
-    return RUN_SPEED - 10; //TODO pas safe si ça devient moins que 90 et pas super élégant
+    return 0.9f;
   } else {
-    return RUN_SPEED;
+    return 1.0f;
   }
 }
 
 // Non-blocking move logic
 void updateServoMovement() {
-  int speed = calculateEaseOutSpeed();
-  servo.write(speed);  // Ajuste la vitesse du servo
-
-  /*int currentPulses = getCurrentPulses();
-  int targetPulses = getTargetPulses();
-
-  // Vérifie si la position cible est atteinte (le nombre de pulses restantes est 1 de moins que le nombre de pulses par panneau)
-  if (abs(currentPulses - targetPulses) < PULSES_PER_PANEL) {
-    // TODO MARCHE PAS lorsqu'on veut avancer que d'un panel ! car on est déjà à 1 step de différence de la cible il y a une différence entre la distance vers la cible pour démarrer et pour s'arrêter
-
-    servo.write(STOP_SPEED);  // Arrête le servo si la cible est atteinte
-  } else {
-    int speed = calculateEaseOutSpeed(currentPulses, targetPulses);
-    servo.write(speed);  // Ajuste la vitesse du servo
-  }*/
+  if (!motorEnabled) {
+    setMotorSpeed(0);
+    return;
+  }
+  float speed = calculateEaseOutSpeed();
+  setMotorSpeed(speed);  // Set the motor speed using the centralized function
 }
 
 // Fonction qui vérifie l'état du capteur optique
@@ -277,7 +272,7 @@ void setup() {
 
   // Servo setup
   servo.attach(SERVO_PIN);
-  servo.write(STOP_SPEED);  // Ensure the servo starts stopped
+  setMotorSpeed(0);  // Ensure the servo starts stopped using the centralized function
 
   // Optical sensor setup
   pinMode(OPTICAL_SENSOR_PIN, INPUT);  // Configure le capteur optique en entrée
@@ -287,7 +282,13 @@ void loop() {
   server.handleClient();  // Handle incoming HTTP requests
   checkOpticalSensor();   // Vérifie l'état du capteur optique
   updateServoMovement();  // Manage the servo's movement
-                          // #ifdef DEBUG_ENABLED
+#ifdef DEBUG_ENABLED
   serialPrintThrottled(buildDebugString());
-  // #endif
+#endif
+}
+
+void setMotorSpeed(float normalizedSpeed) {
+  normalizedSpeed = constrain(normalizedSpeed, 0.f, 1.f);
+  int speed = map(normalizedSpeed * 100, 0, 100, STOP_SPEED, RUN_SPEED);
+  servo.write(speed);
 }
