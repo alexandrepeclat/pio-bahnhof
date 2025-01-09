@@ -2,6 +2,7 @@
 #include <ESP8266WiFi.h>
 #include <Encoder.h>
 #include <Servo.h>
+#include <map>
 
 // Prototypes declaration
 int getCurrentPulses();
@@ -32,7 +33,6 @@ void setMotorSpeed(float normalizedSpeed);
 
 // TODO SOFTWARE :
 //- Sécurités si valeur hors norme, stoppe servo
-//- Ajouter un état "OFF" pour le servo qu'on peut toggler pour la sécurité
 //- Remplacer service setCurrentPanel par un service calibration qui met l'état indéfini sur le panel courant (+ gérer panel courant indéfini tourne un tour jusqu'à déclencher l'optique)
 //- Du coup démarrer en "indéfini" mais ne pas bouger, et à la première commande, aller jusqu'à l'optique au minimum
 // TODO setTargetPanel ?
@@ -63,6 +63,10 @@ ESP8266WebServer server(80);
 Encoder encoder(ENCODER_PIN_A, ENCODER_PIN_B);
 int targetPanel = 0;        // Panneau cible //TODO utiliser un targetPulses et virer quasi tous les appels get/setPanel sauf depuis l'api ou les debug
 bool motorEnabled = false;  // Boolean to enable/disable motor, starts disabled
+
+#ifdef DEBUG_ENABLED
+std::map<String, String> lastDebugMessages;  // Map to store the last debug messages
+#endif
 
 // Setup Wi-Fi
 const char* ssid = "ap8F2EOjLm";
@@ -118,12 +122,10 @@ String buildDebugString() {
   return debugString;
 }
 
-unsigned long lastDebugPrintTime = 0;
-void serialPrintThrottled(String message) {
-  unsigned long currentTime = millis();
-  if (currentTime - lastDebugPrintTime > 100) {
+void serialPrintThrottled(String key, String message) {
+  if (lastDebugMessages[key] != message) {
     Serial.println(message);
-    lastDebugPrintTime = currentTime;
+    lastDebugMessages[key] = message;
   }
 }
 #endif
@@ -243,7 +245,7 @@ void checkOpticalSensor() {
     //- ça détecte pas au step 1 suivant (qui serait le 2) et on a un décalage
     //- à voir aussi si nécessite pas un ajustement mécanique
 
-    serialPrintThrottled("Panneau 0 détecté, currentPanel réinitialisé à 0");
+    serialPrintThrottled("OPTICAL", "Panneau 0 détecté, currentPanel réinitialisé à 0");
   }
 }
 
@@ -283,7 +285,7 @@ void loop() {
   checkOpticalSensor();   // Vérifie l'état du capteur optique
   updateServoMovement();  // Manage the servo's movement
 #ifdef DEBUG_ENABLED
-  serialPrintThrottled(buildDebugString());
+  serialPrintThrottled("ALL", buildDebugString());
 #endif
 }
 
