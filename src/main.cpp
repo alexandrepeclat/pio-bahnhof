@@ -30,12 +30,17 @@ void setMotorSpeed(float normalizedSpeed);
 //- Voir comment fixer axe roue optique + rondelles
 //- Voir comment fixer roue encodeur + rondelles
 //- Prévoir plus de place pour pins capteur optique
+//- Roue libre à insérer une fois que tout est en place pour permettre de libérer le mécanisme en manuel ? 
 
 // TODO SOFTWARE :
 //- Sécurités si valeur hors norme, stoppe servo
 //- Remplacer service setCurrentPanel par un service calibration qui met l'état indéfini sur le panel courant (+ gérer panel courant indéfini tourne un tour jusqu'à déclencher l'optique)
 //- Du coup démarrer en "indéfini" mais ne pas bouger, et à la première commande, aller jusqu'à l'optique au minimum
 // TODO setTargetPanel ?
+// TODO service pour avancer jusqu'à l'optique ? afficher le currentPulses et cie quand optical est détecté dans debug ? 
+// TODO ? stocker la valeur de l'encodeur dans variable et la remettre à zéro avec l'optique, mais laisser la valeur de l'encodeur originale. Permettrait de voir s'il y a un décalage au début et s'il y a un décalage progressif du à ratés en raison d'une boucle trop lente
+// - ou plutôt afficher la valeur de l'encodeur brute lors du passage de l'optique
+// - et faire une variable previousPulses pour voir si une boucle ne loupe pas un step
 
 #define DEBUG_ENABLED 1
 
@@ -49,8 +54,11 @@ void setMotorSpeed(float normalizedSpeed);
 const int PANELS_COUNT = 62;              // Nombre total de panneaux
 const int PULSES_PER_PANEL = 2;           // Ajuste pour 4 impulsions par panneau
 const bool OPTICAL_DETECTED_STATE = LOW;  // Constante qui définit l'état du capteur optique (LOW ou HIGH) lorsqu'il est au panneau 0
-const int DEFAULT_PANEL = 3;              // Panel at optical sensor position
+const int DEFAULT_PANEL = 40;              // Panel at optical sensor position (si on calibre, il s'arrête sur le panel précédent l'optique, donc s'il s'arrête au 3, l'optique est au 4)
 const int ENCODER_DIRECTION_SIGN = -1;
+const int OFFSET = 0;  // Offset between pulses and panel, must not exceed PULSES_PER_PANEL
+static_assert(OFFSET < PULSES_PER_PANEL, "OFFSET must be less than PULSES_PER_PANEL");
+static_assert(OFFSET >= 0, "OFFSET must be non-negative");
 
 // Servo configuration
 Servo servo;
@@ -79,7 +87,7 @@ int getCurrentPulses() {
 }
 
 int getCurrentPanel() {
-  return getCurrentPulses() / PULSES_PER_PANEL;
+  return (getCurrentPulses() - OFFSET) / PULSES_PER_PANEL;
 }
 
 void setCurrentPulses(int pulses) {
@@ -88,11 +96,12 @@ void setCurrentPulses(int pulses) {
 }
 
 void setCurrentPanel(int panel) {
-  setCurrentPulses(panel * PULSES_PER_PANEL);
+  int pulses = (panel * PULSES_PER_PANEL + OFFSET);
+  setCurrentPulses(pulses);
 }
 
 int getTargetPulses() {
-  return targetPanel * PULSES_PER_PANEL;
+  return (targetPanel * PULSES_PER_PANEL + OFFSET) /*% (PANELS_COUNT * PULSES_PER_PANEL) TODO a voir si modulo nécessaire mais en principe pas*/;
 }
 
 String buildDebugJson(String message) {
@@ -171,7 +180,7 @@ void handleAdvancePanels() {
   }
 }
 
-void handleCalibrate() {
+void handleCalibrate() { //TODO a voir pour gérer le process de calibration autrement ? via flag ? j'aimerais le faire revenir sur le même panel après calibration
   sendHeaders();
   setCurrentPanel(DEFAULT_PANEL);  // Set current panel to default
   targetPanel = (DEFAULT_PANEL - 1 + PANELS_COUNT) % PANELS_COUNT;  // Set target panel to the one before
@@ -203,14 +212,15 @@ float easeOutExpo(float x) {
 float calculateEaseOutSpeed() {
   int remainingPulses = getRemainingPulses();
 
-  if (remainingPulses < PULSES_PER_PANEL) {  // TODO parfois j'ai un décalage de 1... peut être même problème que dans l'ancien code commenté...
+  if (remainingPulses == 0) {  // TODO parfois j'ai un décalage de 1... peut être même problème que dans l'ancien code commenté...
+    motorEnabled = false;  // Disable motor when target is reached
     return 0.f;                              // Normalized speed for stop
-  } else if (remainingPulses == PULSES_PER_PANEL) {
+  } else if (remainingPulses <= PULSES_PER_PANEL) {
+    return 0.3f;
+  } else if (remainingPulses <= PULSES_PER_PANEL * 3) {
+    return 0.5f;
+  } else if (remainingPulses <= PULSES_PER_PANEL * 5) {
     return 0.7f;
-  } else if (remainingPulses == PULSES_PER_PANEL * 2) {
-    return 0.8f;
-  } else if (remainingPulses == PULSES_PER_PANEL * 3) {
-    return 0.9f;
   } else {
     return 1.0f;
   }

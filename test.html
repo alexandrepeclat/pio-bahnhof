@@ -136,33 +136,40 @@
             }
         }
 
+        function updateCitySelect(panelIndex) {
+            document.getElementById('citySelect').value = panelIndex;
+        }
+
         function moveToPanelByCity() {
-            const cityIndex = document.getElementById('citySelect').value;
-            apiRequest('/moveToPanel', 'POST', { panel: cityIndex });
+            const panelIndex = document.getElementById('citySelect').value;
+            apiRequest('/moveToPanel', 'POST', { panel: panelIndex });
         }
 
         function getCurrentPanel() {
             apiRequest('/getCurrentPanel').then(data => {
-                document.getElementById('currentPanel').textContent = `Current Panel: ${data}`;
+                let panelIndex = parseInt(data);
+                updateCitySelect(panelIndex);
             });
         }
 
         function moveToPanel() {
-            const panel = document.getElementById('moveToPanelInput').value;
-            if (!panel) {
+            const panelIndex = document.getElementById('moveToPanelInput').value;
+            if (!panelIndex) {
                 alert('Please enter a panel number.');
                 return;
             }
-            apiRequest('/moveToPanel', 'POST', { panel });
+            apiRequest('/moveToPanel', 'POST', { panel: panelIndex });
+            updateCitySelect(panelIndex);
         }
 
         function advancePanels() {
-            const count = document.getElementById('advancePanelsInput').value;
-            if (!count) {
+            const nbPanels = document.getElementById('advancePanelsInput').value;
+            if (!nbPanels) {
                 alert('Please enter a count.');
                 return;
             }
-            apiRequest('/advancePanels', 'POST', { count });
+            apiRequest('/advancePanels', 'POST', { count: nbPanels });
+            updateCitySelect(panelIndex);
         }
 
         function calibrate() {
