@@ -4,35 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CFF Flip</title>
-</head>
-<body>
-    <div class="container">
-        <h1>CFF Flip</h1>
-
-        <label for="citySelect">Select a city:</label>
-        <select id="citySelect" onchange="moveToPanelByCity()">
-            <!-- Options will be populated by JavaScript -->
-        </select>
-
-        <h2>Actions</h2>
-        <button onclick="calibrate()">Calibrate</button>
-        <button onclick="stopServo()">Stop Servo</button>
-        <button onclick="getDebug()">Get debug</button>
-        <button onclick="getCurrentPanel()">Get Current Panel</button>
-
-        <h2>Move to Specific Panel</h2>
-        <input type="number" id="moveToPanelInput" placeholder="Enter Panel Number" value="0">
-        <button onclick="moveToPanel()">Move to Panel</button>
-
-        <h2>Advance Panels</h2>
-        <input type="number" id="advancePanelsInput" placeholder="Enter Count" value="5">
-        <button onclick="advancePanels()">Advance Panels</button>
-
-        <p id="responseMessage"></p>
-    </div>
-
     <script>
-        const API_BASE_URL = 'http://192.168.0.222';
         const cities = [
             'Sektor A', 
             'Sektor B', 
@@ -95,8 +67,78 @@
             'Reservierte Wagen',
             'Beachten',
             'Stuttgart',
-            ''
-            ];
+            'Vide'
+        ];
+
+        document.addEventListener('DOMContentLoaded', () => {
+            if ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) {
+                const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+                const recognition = new SpeechRecognition();
+                const grammar = '#JSGF V1.0; grammar cities; public <city> = ' + cities.join(' | ') + ' ;';
+                //const speechRecognitionList = new SpeechGrammarList();
+                //speechRecognitionList.addFromString(grammar, 1);
+                //recognition.grammars = speechRecognitionList;
+                recognition.continuous = false;
+                recognition.interimResults = false;
+                recognition.lang = 'fr-CH';
+
+                recognition.onresult = (event) => {
+                    const transcript = event.results[0][0].transcript.toLowerCase();
+                    console.debug("speech recognition result:", transcript);
+                    const cityIndex = cities.findIndex(city => transcript.includes(city.toLowerCase()));
+                    if (cityIndex !== -1) {
+                        document.getElementById('citySelect').value = cityIndex;
+                        moveToPanelByCity();
+                    }
+                };
+
+                recognition.onerror = (event) => {
+                    console.error('Speech recognition error', event.error);
+                };
+
+                const pttButton = document.getElementById('pttButton');
+                pttButton.addEventListener('mousedown', () => {
+                    recognition.start();
+                });
+                pttButton.addEventListener('mouseup', () => {
+                    recognition.stop();
+                });
+            } else {
+                console.error('Speech recognition not supported in this browser.');
+            }
+        });
+    </script>
+</head>
+<body>
+    <div class="container">
+        <h1>CFF Flip</h1>
+
+        <label for="citySelect">Select a city:</label>
+        <select id="citySelect" onchange="moveToPanelByCity()">
+            <!-- Options will be populated by JavaScript -->
+        </select>
+        <button id="pttButton">Push to Talk</button>
+
+        <h2>Actions</h2>
+        <button onclick="calibrate()">Calibrate</button>
+        <button onclick="stopServo()">Stop Servo</button>
+        <button onclick="getDebug()">Get debug</button>
+        <button onclick="getCurrentPanel()">Get Current Panel</button>
+
+        <h2>Move to Specific Panel</h2>
+        <input type="number" id="moveToPanelInput" placeholder="Enter Panel Number" value="0">
+        <button onclick="moveToPanel()">Move to Panel</button>
+
+        <h2>Advance Panels</h2>
+        <input type="number" id="advancePanelsInput" placeholder="Enter Count" value="5">
+        <button onclick="advancePanels()">Advance Panels</button>
+
+
+        <p id="responseMessage"></p>
+    </div>
+
+    <script>
+        const API_BASE_URL = 'http://192.168.0.222';
 
         // Populate the select element with city options
         const citySelect = document.getElementById('citySelect');
@@ -141,7 +183,7 @@
         }
 
         function moveToPanelByCity() {
-            const panelIndex = document.getElementById('citySelect').value;
+            const panelIndex = parseInt(document.getElementById('citySelect').value);
             apiRequest('/moveToPanel', 'POST', { panel: panelIndex });
         }
 
@@ -153,7 +195,7 @@
         }
 
         function moveToPanel() {
-            const panelIndex = document.getElementById('moveToPanelInput').value;
+            const panelIndex = parseInt(document.getElementById('moveToPanelInput').value);
             if (!panelIndex) {
                 alert('Please enter a panel number.');
                 return;
@@ -163,12 +205,15 @@
         }
 
         function advancePanels() {
-            const nbPanels = document.getElementById('advancePanelsInput').value;
+            const nbPanels = parseInt(document.getElementById('advancePanelsInput').value);
             if (!nbPanels) {
                 alert('Please enter a count.');
                 return;
             }
             apiRequest('/advancePanels', 'POST', { count: nbPanels });
+            const currentPanel = parseInt(document.getElementById('citySelect').value);
+            const panelIndex = (currentPanel + nbPanels) % cities.length;
+            console.debug(document.getElementById('citySelect').value, nbPanels, panelIndex, cities[panelIndex]);
             updateCitySelect(panelIndex);
         }
 

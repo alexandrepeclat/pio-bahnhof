@@ -239,7 +239,9 @@ void updateServoMovement() {
 // Fonction qui vérifie l'état du capteur optique
 void checkOpticalSensor() {
   int sensorState = digitalRead(OPTICAL_SENSOR_PIN);
+  serialPrintThrottled("OPTICALSTATE", String(sensorState)); //TODO à voir si le sensorState change est détecté (transistion raise ou fall) toujours sur un step pair ou impair de l'encodeur ou si ça varie
   if (sensorState == OPTICAL_DETECTED_STATE) {
+    //serialPrintThrottled("OPTICAL", buildDebugString());
     setCurrentPanel(DEFAULT_PANEL);  // Réinitialiser le panneau actuel à 0 lorsque le capteur détecte le panneau 0 //TODO à voir mais c'est pas nécessaire de setter ce compteur si on fait toujours le calcul dans la boucle du servo
 
     // TODO au cas où l'optique détecte le panneau sur plusieurs steps, ne pas setter le current panel à 0 tant qu'on est pas au moins au 2ème panel
@@ -249,8 +251,8 @@ void checkOpticalSensor() {
     //- ça remet l'encodeur à 0
     //- ça détecte pas au step 1 suivant (qui serait le 2) et on a un décalage
     //- à voir aussi si nécessite pas un ajustement mécanique
+    //- ou alors ne détecter l'optique qu'aux steps pairs ou impairs (selon offset) et virer l'offset ailleurs
 
-    serialPrintThrottled("OPTICAL", "Panneau 0 détecté, currentPanel réinitialisé à 0");
   }
 }
 
