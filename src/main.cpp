@@ -37,7 +37,7 @@ void setMotorSpeed(float normalizedSpeed);
 //- Remplacer service setCurrentPanel par un service calibration qui met l'état indéfini sur le panel courant (+ gérer panel courant indéfini tourne un tour jusqu'à déclencher l'optique)
 //- Du coup démarrer en "indéfini" mais ne pas bouger, et à la première commande, aller jusqu'à l'optique au minimum
 // TODO setTargetPanel ?
-// TODO service pour avancer jusqu'à l'optique ? afficher le currentPulses et cie quand optical est détecté dans debug ? 
+// TODO !!!!!!!!!!!! FAIRE UN MOVEUNTILOPTICALEDGE service pour avancer jusqu'à l'optique ? afficher le currentPulses et cie quand optical est détecté dans debug ? 
 // TODO ? stocker la valeur de l'encodeur dans variable et la remettre à zéro avec l'optique, mais laisser la valeur de l'encodeur originale. Permettrait de voir s'il y a un décalage au début et s'il y a un décalage progressif du à ratés en raison d'une boucle trop lente
 // - ou plutôt afficher la valeur de l'encodeur brute lors du passage de l'optique
 // - et faire une variable previousPulses pour voir si une boucle ne loupe pas un step
@@ -60,6 +60,9 @@ const int OFFSET = 0;  // Offset between pulses and panel, must not exceed PULSE
 static_assert(OFFSET < PULSES_PER_PANEL, "OFFSET must be less than PULSES_PER_PANEL");
 static_assert(OFFSET >= 0, "OFFSET must be non-negative");
 
+// Define the edge type for setting the current panel
+#define OPTICAL_EDGE FALLING  // Change to FALLING if needed
+
 // Servo configuration
 Servo servo;
 const int STOP_SPEED = 90;  // Valeur pour arrêter le servo
@@ -71,6 +74,7 @@ ESP8266WebServer server(80);
 Encoder encoder(ENCODER_PIN_A, ENCODER_PIN_B);
 int targetPanel = 0;        // Panneau cible //TODO utiliser un targetPulses et virer quasi tous les appels get/setPanel sauf depuis l'api ou les debug
 bool motorEnabled = false;  // Boolean to enable/disable motor, starts disabled
+int encoderValue = 0;       // Variable to store the encoder value
 
 #ifdef DEBUG_ENABLED
 std::map<String, String> lastDebugMessages;  // Map to store the last debug messages
@@ -81,7 +85,7 @@ const char* ssid = "ap8F2EOjLm";
 const char* password = "gsecumonwifiii123";
 
 int getCurrentPulses() {
-  int pulses = encoder.read() * ENCODER_DIRECTION_SIGN;
+  int pulses = encoderValue * ENCODER_DIRECTION_SIGN;
   pulses = pulses % (PANELS_COUNT * PULSES_PER_PANEL);
   return pulses;
 }
@@ -111,7 +115,7 @@ String buildDebugJson(String message) {
   debugJson += "\"targetPanel\":" + String(targetPanel) + ",";
   debugJson += "\"currentPulses\":" + String(getCurrentPulses()) + ",";
   debugJson += "\"targetPulses\":" + String(getTargetPulses()) + ",";
-  debugJson += "\"rawPulses\":" + String(encoder.read()) + ",";
+  debugJson += "\"rawPulses\":" + String(encoderValue) + ",";
   debugJson += "\"optical\":" + String(digitalRead(OPTICAL_SENSOR_PIN));
   debugJson += "}";
   return debugJson;
@@ -123,7 +127,7 @@ String buildDebugString() {
                        " targetPanel:" + String(targetPanel) +
                        " currentPulses:" + String(getCurrentPulses()) +
                        " targetPulses:" + String(getTargetPulses()) +
-                       " rawPulses:" + String(encoder.read()) +
+                       " rawPulses:" + String(encoderValue) +
                        " optical:" + String(digitalRead(OPTICAL_SENSOR_PIN)) +
                        " distance: " + String(getRemainingPulses()) +
                        " speed: " + String(calculateEaseOutSpeed());
@@ -238,13 +242,19 @@ void updateServoMovement() {
 
 // Fonction qui vérifie l'état du capteur optique
 void checkOpticalSensor() {
+  static int lastSensorState = !OPTICAL_DETECTED_STATE;  // Initialize to the opposite state
   int sensorState = digitalRead(OPTICAL_SENSOR_PIN);
-  serialPrintThrottled("OPTICALSTATE", String(sensorState)); //TODO à voir si le sensorState change est détecté (transistion raise ou fall) toujours sur un step pair ou impair de l'encodeur ou si ça varie
-  if (sensorState == OPTICAL_DETECTED_STATE) {
-    //serialPrintThrottled("OPTICAL", buildDebugString());
-    setCurrentPanel(DEFAULT_PANEL);  // Réinitialiser le panneau actuel à 0 lorsque le capteur détecte le panneau 0 //TODO à voir mais c'est pas nécessaire de setter ce compteur si on fait toujours le calcul dans la boucle du servo
+  serialPrintThrottled("OPTICALSTATE", "sensorState:" + String(sensorState));
 
-    // TODO au cas où l'optique détecte le panneau sur plusieurs steps, ne pas setter le current panel à 0 tant qu'on est pas au moins au 2ème panel
+  if ((OPTICAL_EDGE == RISING && sensorState == OPTICAL_DETECTED_STATE && lastSensorState != OPTICAL_DETECTED_STATE) || //TODO à voir si faut pas virer DETECTED_STATE pour simplifier parce que là on a un rise logique qui correspond à un fall hardware vu que detected state est LOW
+      (OPTICAL_EDGE == FALLING && sensorState != OPTICAL_DETECTED_STATE && lastSensorState == OPTICAL_DETECTED_STATE)) {
+    serialPrintThrottled("OPTICALSTATE", "sensorState:" + String(sensorState) + " encoderValue:" + String(encoderValue));
+    setCurrentPanel(DEFAULT_PANEL);  // Set the current panel only on the specified edge
+  }
+
+  lastSensorState = sensorState;  // Update the last sensor state
+
+      // TODO au cas où l'optique détecte le panneau sur plusieurs steps, ne pas setter le current panel à 0 tant qu'on est pas au moins au 2ème panel
     //- Sinon ça détecte l'optique au step 0
     //- ça met l'encodeur à 0
     //- ça détecte au step 1
@@ -253,7 +263,6 @@ void checkOpticalSensor() {
     //- à voir aussi si nécessite pas un ajustement mécanique
     //- ou alors ne détecter l'optique qu'aux steps pairs ou impairs (selon offset) et virer l'offset ailleurs
 
-  }
 }
 
 void setup() {
@@ -288,12 +297,13 @@ void setup() {
 }
 
 void loop() {
-  server.handleClient();  // Handle incoming HTTP requests
+  encoderValue = encoder.read();  // Update encoder value at the beginning of each loop
   checkOpticalSensor();   // Vérifie l'état du capteur optique
   updateServoMovement();  // Manage the servo's movement
 #ifdef DEBUG_ENABLED
   serialPrintThrottled("ALL", buildDebugString());
 #endif
+  server.handleClient();  // Handle incoming HTTP requests
 }
 
 void setMotorSpeed(float normalizedSpeed) {
