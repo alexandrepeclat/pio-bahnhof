@@ -1,15 +1,16 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CFF Flip</title>
     <script>
         const cities = [
-            'Sektor A', 
-            'Sektor B', 
-            'Sektor C', 
-            'Sektor D', 
+            'Sektor A',
+            'Sektor B',
+            'Sektor C',
+            'Sektor D',
             'Feldkirch',
             'Bellinzona',
             'Biel',
@@ -97,11 +98,20 @@
                 };
 
                 const pttButton = document.getElementById('pttButton');
-                pttButton.addEventListener('mousedown', () => {
+                pttButton.addEventListener('pointerdown', () => {
                     recognition.start();
+                    pttButton.style.backgroundColor = 'red';
                 });
-                pttButton.addEventListener('mouseup', () => {
+                pttButton.addEventListener('pointerup', () => {
                     recognition.stop();
+                    pttButton.style.backgroundColor = '';
+                });
+                pttButton.addEventListener('pointerleave', () => {
+                    recognition.stop();
+                    pttButton.style.backgroundColor = '';
+                });
+                pttButton.addEventListener("touchstart", (event) => {
+                    event.preventDefault();
                 });
             } else {
                 console.error('Speech recognition not supported in this browser.');
@@ -109,6 +119,7 @@
         });
     </script>
 </head>
+
 <body>
     <div class="container">
         <h1>CFF Flip</h1>
@@ -230,4 +241,5 @@
         }
     </script>
 </body>
+
 </html>
