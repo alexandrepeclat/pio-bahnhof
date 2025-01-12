@@ -41,6 +41,8 @@ void setMotorSpeed(float normalizedSpeed);
 // TODO ? stocker la valeur de l'encodeur dans variable et la remettre à zéro avec l'optique, mais laisser la valeur de l'encodeur originale. Permettrait de voir s'il y a un décalage au début et s'il y a un décalage progressif du à ratés en raison d'une boucle trop lente
 // - ou plutôt afficher la valeur de l'encodeur brute lors du passage de l'optique
 // - et faire une variable previousPulses pour voir si une boucle ne loupe pas un step
+// TODO s'assurer que tous les "getters" utilisés notamment dans les debug ne change pas les états ou valeurs :-)
+// TODO à voir la fonction de calibration ça me plait moyen : on doit gérer l'optique à plusieurs endroits (soit abstraire la notion rising/falling/low/high) (soit voir si pas mieux où on donne simplement le panel à atteindre et on laisse calibrer automatiquement, ce qui évite d'avoir une vitesse de calibration différente de la vitesse en opération)
 
 #define DEBUG_ENABLED 1
 
@@ -73,9 +75,18 @@ Encoder encoder(ENCODER_PIN_A, ENCODER_PIN_B);
 int targetPanel = 0;         // Panneau cible //TODO utiliser un targetPulses et virer quasi tous les appels get/setPanel sauf depuis l'api ou les debug
 bool motorEnabled = false;   // Boolean to enable/disable motor, starts disabled
 int encoderValue = 0;        // Variable to store the encoder value
+int sensorState = LOW;
 int lastSensorState = HIGH;  // Initialize to HIGH (not detected)
 bool errorFlag = false;      // Emergency stop flag
 String errorMessage = "";    // Emergency stop message
+
+enum MotorMode {
+  STOPPED,
+  GO_TO_TARGET,
+  GO_TO_CALIBRATION
+};
+
+MotorMode motorMode = STOPPED;
 
 #ifdef DEBUG_ENABLED
 std::map<String, String> lastDebugMessages;  // Map to store the last debug messages
@@ -84,6 +95,13 @@ std::map<String, String> lastDebugMessages;  // Map to store the last debug mess
 // Setup Wi-Fi
 const char* ssid = "ap8F2EOjLm";
 const char* password = "gsecumonwifiii123";
+
+void emergencyStop(String message) {
+  errorFlag = true;
+  errorMessage = message;
+  servo.write(STOP_SPEED);  // Stop the motor immediately
+  Serial.println("EMERGENCY STOP: " + message);
+}
 
 int getCurrentPulses() {
   int pulses = encoderValue * ENCODER_DIRECTION_SIGN;
@@ -169,7 +187,7 @@ void handleMoveToPanel() {
   if (server.hasArg("panel")) {
     targetPanel = server.arg("panel").toInt();
     targetPanel %= PANELS_COUNT;  // Assure que la cible est dans les limites
-    motorEnabled = true;          // Enable motor on move command
+    motorMode = GO_TO_TARGET;     // Set motor mode to go to target
     server.send(200, "text/plain", buildDebugJson("Moving to panel " + String(targetPanel)));
   } else {
     server.send(400, "text/plain", "Missing 'panel' argument");
@@ -182,25 +200,23 @@ void handleAdvancePanels() {
     int advanceCount = server.arg("count").toInt();
     int currentPanel = getCurrentPanel();
     targetPanel = (currentPanel + advanceCount) % PANELS_COUNT;
-    motorEnabled = true;  // Enable motor on advance command
+    motorMode = GO_TO_TARGET;  // Set motor mode to go to target
     server.send(200, "text/plain", buildDebugJson("From " + String(currentPanel) + ", Advancing " + String(advanceCount) + " panels to " + String(targetPanel)));
   } else {
     server.send(400, "text/plain", "Missing 'count' argument");
   }
 }
 
-void handleCalibrate() {  // TODO a voir pour gérer le process de calibration autrement ? via flag ? j'aimerais le faire revenir sur le même panel après calibration
+void handleCalibrate() {
   sendHeaders();
-  setCurrentPanel(DEFAULT_PANEL);                                   // Set current panel to default
-  targetPanel = (DEFAULT_PANEL - 1 + PANELS_COUNT) % PANELS_COUNT;  // Set target panel to the one before
-  motorEnabled = true;                                              // Enable motor for calibration
-  server.send(200, "text/plain", buildDebugJson("Calibration started. Current panel set to " + String(DEFAULT_PANEL) + ", target panel set to " + String(targetPanel)));
+  motorMode = GO_TO_CALIBRATION;  // Set motor mode for calibration
+  server.send(200, "text/plain", buildDebugJson("Calibration started. Rotating until optical sensor edge is detected."));
 }
 
 void handleStop() {
   sendHeaders();
-  setMotorSpeed(0);      // Use the centralized function to stop the motor
-  motorEnabled = false;  // Disable motor on stop command
+  setMotorSpeed(0);     // Use the centralized function to stop the motor
+  motorMode = STOPPED;  // Set motor mode to stopped
   int currentPanel = getCurrentPanel();
   targetPanel = currentPanel;
   server.send(200, "text/plain", buildDebugJson("Stopped. Current panel set to " + String(currentPanel)));
@@ -218,12 +234,25 @@ float easeOutExpo(float x) {
   return (x == 1) ? 1 : 1 - pow(2, -10 * x);  // Calcul de l'expo //TODO https://easings.net/
 }
 
+float calculateCalibrationSpeed() {
+  if ((OPTICAL_EDGE == RISING && sensorState == HIGH && lastSensorState == LOW) ||  // TODO à voir si on peut faire mieux, on a de la logique dupliquée et on gère l'optique à deux endroits (pour des raisons différentes mais bon)
+      (OPTICAL_EDGE == FALLING && sensorState == LOW && lastSensorState == HIGH)) {
+    Serial.println("CALIBRATION sensorState:" + String(sensorState) + " lastSensorState:" + String(lastSensorState));
+    return 0.f;
+  }
+
+  // Half speed when we are about to detect the 2nd edge
+  if (OPTICAL_EDGE == RISING) {
+    return sensorState == LOW ? 0.5f : 1.0f;  // TODO problème si on ralentit à la calibration initiale, au prochain tour à plein régime on va pas avoir exactement la même position ? Après essais pratiques, semblerait que ça fasse aucune différence car le tout est assez réactif même à pleine vitesse
+  } else {
+    return sensorState == HIGH ? 0.5f : 1.0f;
+  }
+}
+
 float calculateEaseOutSpeed() {
   int remainingPulses = getRemainingPulses();
-
-  if (remainingPulses == 0) {  // TODO parfois j'ai un décalage de 1... peut être même problème que dans l'ancien code commenté...
-    motorEnabled = false;      // Disable motor when target is reached //TODO à voir si motorEnabled dirige le setMotorSpeed ou si c'est l'inverse et à voir pour refactorer où est-ce qu'on le lit/écrit
-    return 0.f;                // Normalized speed for stop
+  if (remainingPulses == 0) {
+    return 0.f;
   } else if (remainingPulses <= PULSES_PER_PANEL) {
     return 0.3f;
   } else if (remainingPulses <= PULSES_PER_PANEL * 3) {
@@ -237,17 +266,34 @@ float calculateEaseOutSpeed() {
 
 // Non-blocking move logic
 void updateServoMovement() {
-  if (!motorEnabled) {
-    setMotorSpeed(0);
-    return;
+  serialPrintThrottled("STATE", "motorMode:" + String(motorMode));
+  switch (motorMode) {
+    case STOPPED:
+      setMotorSpeed(0);
+      break;
+    case GO_TO_TARGET: {
+      float speed = calculateEaseOutSpeed();
+      if (speed == 0.f) {
+        motorMode = STOPPED;
+      }
+      setMotorSpeed(speed);  // TODO à voir setMotorSpeed ne devrait pas changer la machine d'état
+      break;
+    }
+    case GO_TO_CALIBRATION: {
+      float speed = calculateCalibrationSpeed();
+      if (speed == 0.f) {
+        motorMode = STOPPED;
+      }
+      setMotorSpeed(speed);
+      break;
+    }
   }
-  float speed = calculateEaseOutSpeed();
-  setMotorSpeed(speed);  // Set the motor speed using the centralized function
 }
+
 
 // Fonction qui vérifie l'état du capteur optique
 void checkOpticalSensor() {
-  int sensorState = digitalRead(OPTICAL_SENSOR_PIN);
+  sensorState = digitalRead(OPTICAL_SENSOR_PIN);
   serialPrintThrottled("OPTICALSTATE", "sensorState:" + String(sensorState));
 
   if ((OPTICAL_EDGE == RISING && sensorState == HIGH && lastSensorState == LOW) ||
@@ -256,7 +302,7 @@ void checkOpticalSensor() {
     setCurrentPanel(DEFAULT_PANEL);  // Set the current panel only on the specified edge
   }
 
-  lastSensorState = sensorState;  // Update the last sensor state
+  
 
   // TODO au cas où l'optique détecte le panneau sur plusieurs steps, ne pas setter le current panel à 0 tant qu'on est pas au moins au 2ème panel
   //- Sinon ça détecte l'optique au step 0
@@ -304,6 +350,7 @@ void loop() {
   encoderValue = encoder.read();  // Update encoder value at the beginning of each loop
   checkOpticalSensor();           // Vérifie l'état du capteur optique
   updateServoMovement();          // Manage the servo's movement
+  lastSensorState = sensorState;  // Update the last sensor state //TODO Dommage de pas pouvoir le faire dans la fonction checkOpticalSensor... à voir
 #ifdef DEBUG_ENABLED
   serialPrintThrottled("ALL", buildDebugString());
 #endif
@@ -311,7 +358,7 @@ void loop() {
 }
 
 void setMotorSpeed(float normalizedSpeed) {
-  if (!motorEnabled || errorFlag)
+  if (motorMode == STOPPED || errorFlag)  // TODO ici on devrait pas vérifier motorMode car c'est géré par l'appelant au niveau responsabilité de l'état
     servo.write(STOP_SPEED);
   normalizedSpeed = constrain(normalizedSpeed, 0.f, 1.f);
   int speed = map(normalizedSpeed * 100, 0, 100, STOP_SPEED, RUN_SPEED);
@@ -320,11 +367,4 @@ void setMotorSpeed(float normalizedSpeed) {
     return;
   }
   servo.write(speed);
-}
-
-void emergencyStop(String message) {
-  errorFlag = true;
-  errorMessage = message;
-  servo.write(STOP_SPEED);  // Stop the motor immediately
-  Serial.println("EMERGENCY STOP: " + message);
 }
