@@ -53,15 +53,14 @@ void setMotorSpeed(float normalizedSpeed);
 // Constants
 const int PANELS_COUNT = 62;              // Nombre total de panneaux
 const int PULSES_PER_PANEL = 2;           // Ajuste pour 4 impulsions par panneau
-const bool OPTICAL_DETECTED_STATE = LOW;  // Constante qui définit l'état du capteur optique (LOW ou HIGH) lorsqu'il est au panneau 0
 const int DEFAULT_PANEL = 40;              // Panel at optical sensor position (si on calibre, il s'arrête sur le panel précédent l'optique, donc s'il s'arrête au 3, l'optique est au 4)
 const int ENCODER_DIRECTION_SIGN = -1;
 const int OFFSET = 0;  // Offset between pulses and panel, must not exceed PULSES_PER_PANEL
 static_assert(OFFSET < PULSES_PER_PANEL, "OFFSET must be less than PULSES_PER_PANEL");
 static_assert(OFFSET >= 0, "OFFSET must be non-negative");
 
-// Define the edge type for setting the current panel
-#define OPTICAL_EDGE FALLING  // Change to FALLING if needed
+#define OPTICAL_EDGE RISING// Define the edge type for setting the current panel
+
 
 // Servo configuration
 Servo servo;
@@ -75,6 +74,7 @@ Encoder encoder(ENCODER_PIN_A, ENCODER_PIN_B);
 int targetPanel = 0;        // Panneau cible //TODO utiliser un targetPulses et virer quasi tous les appels get/setPanel sauf depuis l'api ou les debug
 bool motorEnabled = false;  // Boolean to enable/disable motor, starts disabled
 int encoderValue = 0;       // Variable to store the encoder value
+int lastSensorState = HIGH; // Initialize to HIGH (not detected)
 
 #ifdef DEBUG_ENABLED
 std::map<String, String> lastDebugMessages;  // Map to store the last debug messages
@@ -242,26 +242,25 @@ void updateServoMovement() {
 
 // Fonction qui vérifie l'état du capteur optique
 void checkOpticalSensor() {
-  static int lastSensorState = !OPTICAL_DETECTED_STATE;  // Initialize to the opposite state
   int sensorState = digitalRead(OPTICAL_SENSOR_PIN);
   serialPrintThrottled("OPTICALSTATE", "sensorState:" + String(sensorState));
 
-  if ((OPTICAL_EDGE == RISING && sensorState == OPTICAL_DETECTED_STATE && lastSensorState != OPTICAL_DETECTED_STATE) || //TODO à voir si faut pas virer DETECTED_STATE pour simplifier parce que là on a un rise logique qui correspond à un fall hardware vu que detected state est LOW
-      (OPTICAL_EDGE == FALLING && sensorState != OPTICAL_DETECTED_STATE && lastSensorState == OPTICAL_DETECTED_STATE)) {
+  if ((OPTICAL_EDGE == RISING && sensorState == HIGH && lastSensorState == LOW) ||
+      (OPTICAL_EDGE == FALLING && sensorState == LOW && lastSensorState == HIGH)) {
     serialPrintThrottled("OPTICALSTATE", "sensorState:" + String(sensorState) + " encoderValue:" + String(encoderValue));
     setCurrentPanel(DEFAULT_PANEL);  // Set the current panel only on the specified edge
   }
 
   lastSensorState = sensorState;  // Update the last sensor state
 
-      // TODO au cas où l'optique détecte le panneau sur plusieurs steps, ne pas setter le current panel à 0 tant qu'on est pas au moins au 2ème panel
-    //- Sinon ça détecte l'optique au step 0
-    //- ça met l'encodeur à 0
-    //- ça détecte au step 1
-    //- ça remet l'encodeur à 0
-    //- ça détecte pas au step 1 suivant (qui serait le 2) et on a un décalage
-    //- à voir aussi si nécessite pas un ajustement mécanique
-    //- ou alors ne détecter l'optique qu'aux steps pairs ou impairs (selon offset) et virer l'offset ailleurs
+  // TODO au cas où l'optique détecte le panneau sur plusieurs steps, ne pas setter le current panel à 0 tant qu'on est pas au moins au 2ème panel
+  //- Sinon ça détecte l'optique au step 0
+  //- ça met l'encodeur à 0
+  //- ça détecte au step 1
+  //- ça remet l'encodeur à 0
+  //- ça détecte pas au step 1 suivant (qui serait le 2) et on a un décalage
+  //- à voir aussi si nécessite pas un ajustement mécanique
+  //- ou alors ne détecter l'optique qu'aux steps pairs ou impairs (selon offset) et virer l'offset ailleurs
 
 }
 
@@ -294,6 +293,7 @@ void setup() {
 
   // Optical sensor setup
   pinMode(OPTICAL_SENSOR_PIN, INPUT);  // Configure le capteur optique en entrée
+  lastSensorState = digitalRead(OPTICAL_SENSOR_PIN);  // Initialize lastSensorState
 }
 
 void loop() {
