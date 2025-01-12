@@ -61,7 +61,7 @@ const int OFFSET = 0;  // Offset between pulses and panel, must not exceed PULSE
 static_assert(OFFSET < PULSES_PER_PANEL, "OFFSET must be less than PULSES_PER_PANEL");
 static_assert(OFFSET >= 0, "OFFSET must be non-negative");
 
-#define OPTICAL_EDGE RISING  // Define the edge type for setting the current panel
+#define DETECTED_STATE LOW  // Define the detected state for the optical sensor
 
 // Servo configuration
 Servo servo;
@@ -72,9 +72,9 @@ static_assert(RUN_SPEED > 90, "RUN_SPEED must be greater than 90 or everything w
 // Globals
 ESP8266WebServer server(80);
 Encoder encoder(ENCODER_PIN_A, ENCODER_PIN_B);
-int targetPanel = 0;         // Panneau cible //TODO utiliser un targetPulses et virer quasi tous les appels get/setPanel sauf depuis l'api ou les debug
-bool motorEnabled = false;   // Boolean to enable/disable motor, starts disabled
-int encoderValue = 0;        // Variable to store the encoder value
+int targetPanel = 0;        // Panneau cible //TODO utiliser un targetPulses et virer quasi tous les appels get/setPanel sauf depuis l'api ou les debug
+bool motorEnabled = false;  // Boolean to enable/disable motor, starts disabled
+int encoderValue = 0;       // Variable to store the encoder value
 int sensorState = LOW;
 int lastSensorState = HIGH;  // Initialize to HIGH (not detected)
 bool errorFlag = false;      // Emergency stop flag
@@ -230,23 +230,22 @@ int getRemainingPulses() {
   return distance;
 }
 
-float easeOutExpo(float x) {
-  return (x == 1) ? 1 : 1 - pow(2, -10 * x);  // Calcul de l'expo //TODO https://easings.net/
+bool isOpticalSensorEdgeDetected() {
+  return (DETECTED_STATE == LOW && sensorState == HIGH && lastSensorState == LOW) ||
+         (DETECTED_STATE == HIGH && sensorState == LOW && lastSensorState == HIGH);
 }
 
 float calculateCalibrationSpeed() {
-  if ((OPTICAL_EDGE == RISING && sensorState == HIGH && lastSensorState == LOW) ||  // TODO à voir si on peut faire mieux, on a de la logique dupliquée et on gère l'optique à deux endroits (pour des raisons différentes mais bon)
-      (OPTICAL_EDGE == FALLING && sensorState == LOW && lastSensorState == HIGH)) {
-    Serial.println("CALIBRATION sensorState:" + String(sensorState) + " lastSensorState:" + String(lastSensorState));
-    return 0.f;
-  }
-
-  // Half speed when we are about to detect the 2nd edge
-  if (OPTICAL_EDGE == RISING) {
-    return sensorState == LOW ? 0.5f : 1.0f;  // TODO problème si on ralentit à la calibration initiale, au prochain tour à plein régime on va pas avoir exactement la même position ? Après essais pratiques, semblerait que ça fasse aucune différence car le tout est assez réactif même à pleine vitesse
+  // Half speed when we are about to detect the 2nd edge  // TODO problème si on ralentit à la calibration initiale, au prochain tour à plein régime on va pas avoir exactement la même position ? Après essais pratiques, semblerait que ça fasse aucune différence car le tout est assez réactif même à pleine vitesse
+  if (DETECTED_STATE == LOW) {
+    return sensorState == LOW ? 0.5f : 1.0f;
   } else {
     return sensorState == HIGH ? 0.5f : 1.0f;
   }
+}
+
+bool isTargetPanelReached() {
+  return getRemainingPulses() == 0;
 }
 
 float calculateEaseOutSpeed() {
@@ -264,54 +263,42 @@ float calculateEaseOutSpeed() {
   }
 }
 
-// Non-blocking move logic
-void updateServoMovement() {
+void processStateMachine() {
   serialPrintThrottled("STATE", "motorMode:" + String(motorMode));
   switch (motorMode) {
     case STOPPED:
       setMotorSpeed(0);
       break;
     case GO_TO_TARGET: {
-      float speed = calculateEaseOutSpeed();
-      if (speed == 0.f) {
+      if (isTargetPanelReached()) {
         motorMode = STOPPED;
+        setMotorSpeed(0);
+      } else {
+        float speed = calculateEaseOutSpeed();
+        setMotorSpeed(speed);
       }
-      setMotorSpeed(speed);  // TODO à voir setMotorSpeed ne devrait pas changer la machine d'état
       break;
     }
     case GO_TO_CALIBRATION: {
-      float speed = calculateCalibrationSpeed();
-      if (speed == 0.f) {
+      if (isOpticalSensorEdgeDetected()) {
         motorMode = STOPPED;
+        setMotorSpeed(0); //TODO ça m'embete un peu d'avoir setMotorSpeed ici car c'est déjà dans l'état STOPPED.... est-ce un problème ? d'un coté je préfère le faire direct plutôt que d'attendre la loop suivante
+      } else {
+        float speed = calculateCalibrationSpeed();
+        setMotorSpeed(speed);
       }
-      setMotorSpeed(speed);
       break;
     }
   }
 }
 
-
-// Fonction qui vérifie l'état du capteur optique
-void checkOpticalSensor() {
+void readSensors() {
   sensorState = digitalRead(OPTICAL_SENSOR_PIN);
-  serialPrintThrottled("OPTICALSTATE", "sensorState:" + String(sensorState));
-
-  if ((OPTICAL_EDGE == RISING && sensorState == HIGH && lastSensorState == LOW) ||
-      (OPTICAL_EDGE == FALLING && sensorState == LOW && lastSensorState == HIGH)) {
+  if (isOpticalSensorEdgeDetected()) { //TODO remplacer par une variable isEdgeDetected comme ça je peux direct mettre lastState à jour et pas le gérer dehors de cette fonction. Faut le rendre inaccessible depuis dehors aussi
     serialPrintThrottled("OPTICALSTATE", "sensorState:" + String(sensorState) + " encoderValue:" + String(encoderValue));
     setCurrentPanel(DEFAULT_PANEL);  // Set the current panel only on the specified edge
   }
-
-  
-
-  // TODO au cas où l'optique détecte le panneau sur plusieurs steps, ne pas setter le current panel à 0 tant qu'on est pas au moins au 2ème panel
-  //- Sinon ça détecte l'optique au step 0
-  //- ça met l'encodeur à 0
-  //- ça détecte au step 1
-  //- ça remet l'encodeur à 0
-  //- ça détecte pas au step 1 suivant (qui serait le 2) et on a un décalage
-  //- à voir aussi si nécessite pas un ajustement mécanique
-  //- ou alors ne détecter l'optique qu'aux steps pairs ou impairs (selon offset) et virer l'offset ailleurs
+  encoderValue = encoder.read();  // Update encoder value at the beginning of each loop
 }
 
 void setup() {
@@ -347,10 +334,11 @@ void setup() {
 }
 
 void loop() {
-  encoderValue = encoder.read();  // Update encoder value at the beginning of each loop
-  checkOpticalSensor();           // Vérifie l'état du capteur optique
-  updateServoMovement();          // Manage the servo's movement
-  lastSensorState = sensorState;  // Update the last sensor state //TODO Dommage de pas pouvoir le faire dans la fonction checkOpticalSensor... à voir
+  readSensors();
+  processStateMachine();
+
+  // Update sensors last state
+  lastSensorState = sensorState;
 #ifdef DEBUG_ENABLED
   serialPrintThrottled("ALL", buildDebugString());
 #endif
@@ -358,8 +346,13 @@ void loop() {
 }
 
 void setMotorSpeed(float normalizedSpeed) {
-  if (motorMode == STOPPED || errorFlag)  // TODO ici on devrait pas vérifier motorMode car c'est géré par l'appelant au niveau responsabilité de l'état
+  // If error was raised, stop the motor
+  if (errorFlag) {
     servo.write(STOP_SPEED);
+    return;
+  }
+
+  // Constrain normalized speed and map it to servo speed values
   normalizedSpeed = constrain(normalizedSpeed, 0.f, 1.f);
   int speed = map(normalizedSpeed * 100, 0, 100, STOP_SPEED, RUN_SPEED);
   if (speed < 90) {
