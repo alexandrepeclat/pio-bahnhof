@@ -233,6 +233,7 @@ int getRemainingPulses() {
 bool isOpticalSensorEdgeDetected() {
   return (DETECTED_STATE == LOW && sensorState == HIGH && lastSensorState == LOW) ||
          (DETECTED_STATE == HIGH && sensorState == LOW && lastSensorState == HIGH);
+         //TODO à voir car plus court mais moins explicite : return (sensorState != lastSensorState && sensorState == DETECTED_STATE);
 }
 
 float calculateCalibrationSpeed() {
@@ -283,6 +284,7 @@ void processStateMachine() {
       if (isOpticalSensorEdgeDetected()) {
         motorMode = STOPPED;
         setMotorSpeed(0); //TODO ça m'embete un peu d'avoir setMotorSpeed ici car c'est déjà dans l'état STOPPED.... est-ce un problème ? d'un coté je préfère le faire direct plutôt que d'attendre la loop suivante
+        //TODO Splitter la machine d'état en deux ? une fonction pour les transitions, et une pour les actions
       } else {
         float speed = calculateCalibrationSpeed();
         setMotorSpeed(speed);
