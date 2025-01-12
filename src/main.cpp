@@ -13,9 +13,16 @@ int getTargetPulses();
 String buildDebugString();
 String buildDebugJson(String message);
 void sendHeaders();
-float calculateEaseOutSpeed();
+float calculateSpeedMovingToTarget();
 int getRemainingPulses();
 void setMotorSpeed(float normalizedSpeed);
+
+enum AppState {
+  STOPPED,
+  MOVING_TO_TARGET,
+  CALIBRATING
+};
+
 // TODO MECANIQUE :
 //- Faciliter l'ajustement de la roue optique
 //   - en roue libre ?
@@ -37,13 +44,15 @@ void setMotorSpeed(float normalizedSpeed);
 //- Remplacer service setCurrentPanel par un service calibration qui met l'état indéfini sur le panel courant (+ gérer panel courant indéfini tourne un tour jusqu'à déclencher l'optique)
 //- Du coup démarrer en "indéfini" mais ne pas bouger, et à la première commande, aller jusqu'à l'optique au minimum
 // TODO setTargetPanel ?
-// TODO !!!!!!!!!!!! FAIRE UN MOVEUNTILOPTICALEDGE service pour avancer jusqu'à l'optique ? afficher le currentPulses et cie quand optical est détecté dans debug ?
 // TODO ? stocker la valeur de l'encodeur dans variable et la remettre à zéro avec l'optique, mais laisser la valeur de l'encodeur originale. Permettrait de voir s'il y a un décalage au début et s'il y a un décalage progressif du à ratés en raison d'une boucle trop lente
 // - ou plutôt afficher la valeur de l'encodeur brute lors du passage de l'optique
 // - et faire une variable previousPulses pour voir si une boucle ne loupe pas un step
 // TODO s'assurer que tous les "getters" utilisés notamment dans les debug ne change pas les états ou valeurs :-)
 // TODO à voir la fonction de calibration ça me plait moyen : on doit gérer l'optique à plusieurs endroits (soit abstraire la notion rising/falling/low/high) (soit voir si pas mieux où on donne simplement le panel à atteindre et on laisse calibrer automatiquement, ce qui évite d'avoir une vitesse de calibration différente de la vitesse en opération)
-
+// TODO état ERROR ? en même temps le flag reste nécessaire car il garantit qu'on peut pas setter à nouveau autre chose via transition ou autre... mais la boucle continue de tourner et calculer des trucs pour rien...
+// TODO stocker des trucs en EEPROM ? genre le panel courant pour redémarrer dessus ? 
+// TODO stocker des options en EEPROM ? genre s'il faut auto-calibrer au démarrage ou pas ? la vitesse de rotation ? le panel par défaut si démontage + remontage sans devoir reflasher ?
+// TODO Vérifier les valeurs passées depuis l'api un peu mieux en terme de limites et type
 #define DEBUG_ENABLED 1
 
 // Pins configuration
@@ -75,18 +84,12 @@ Encoder encoder(ENCODER_PIN_A, ENCODER_PIN_B);
 int targetPanel = 0;        // Panneau cible //TODO utiliser un targetPulses et virer quasi tous les appels get/setPanel sauf depuis l'api ou les debug
 bool motorEnabled = false;  // Boolean to enable/disable motor, starts disabled
 int encoderValue = 0;       // Variable to store the encoder value
+bool isOpticalEdgeDetected = false; // Variable to store if the optical edge is detected during the current loop
 int sensorState = LOW;
 int lastSensorState = HIGH;  // Initialize to HIGH (not detected)
 bool errorFlag = false;      // Emergency stop flag
 String errorMessage = "";    // Emergency stop message
-
-enum MotorMode {
-  STOPPED,
-  GO_TO_TARGET,
-  GO_TO_CALIBRATION
-};
-
-MotorMode motorMode = STOPPED;
+AppState currentState = STOPPED;
 
 #ifdef DEBUG_ENABLED
 std::map<String, String> lastDebugMessages;  // Map to store the last debug messages
@@ -135,7 +138,7 @@ String buildDebugJson(String message) {
                "\"currentPulses\":" + String(getCurrentPulses()) + "," +
                "\"targetPulses\":" + String(getTargetPulses()) + "," +
                "\"rawPulses\":" + String(encoderValue) + "," +
-               "\"optical\":" + String(digitalRead(OPTICAL_SENSOR_PIN)) + "," +
+               "\"optical\":" + String(sensorState) + "," +
                "\"errorFlag\":" + String(errorFlag) + "," +
                "\"errorMessage\":\"" + errorMessage + "\"";
   debugJson += "}";
@@ -144,14 +147,15 @@ String buildDebugJson(String message) {
 
 #ifdef DEBUG_ENABLED
 String buildDebugString() {
-  String debugString = "currentPanel: " + String(getCurrentPanel()) +
+  String debugString = "state: " + String(currentState) + //TODO se passer de cette fonction et se contenter du JSON ou faire un tableau de valeurs formattées après coup ou passer un format de ligne en paramètre ?
+                       "currentPanel: " + String(getCurrentPanel()) +
                        " targetPanel:" + String(targetPanel) +
                        " currentPulses:" + String(getCurrentPulses()) +
                        " targetPulses:" + String(getTargetPulses()) +
                        " rawPulses:" + String(encoderValue) +
-                       " optical:" + String(digitalRead(OPTICAL_SENSOR_PIN)) +
+                       " optical:" + String(sensorState) +
                        " distance: " + String(getRemainingPulses()) +
-                       " speed: " + String(calculateEaseOutSpeed()) +
+                       " speed: " + String(calculateSpeedMovingToTarget()) +
                        " errorFlag: " + String(errorFlag) +
                        " errorMessage: " + errorMessage;
 
@@ -165,6 +169,11 @@ void serialPrintThrottled(String key, String message) {
   }
 }
 #endif
+
+void setCurrentState(AppState newState) {
+  serialPrintThrottled("STATE", "state:" + String(currentState) + " newState:" + String(newState));
+  currentState = newState;
+}
 
 // Functions
 
@@ -186,8 +195,8 @@ void handleMoveToPanel() {
   sendHeaders();
   if (server.hasArg("panel")) {
     targetPanel = server.arg("panel").toInt();
-    targetPanel %= PANELS_COUNT;  // Assure que la cible est dans les limites
-    motorMode = GO_TO_TARGET;     // Set motor mode to go to target
+    targetPanel %= PANELS_COUNT;      // Assure que la cible est dans les limites
+    setCurrentState(MOVING_TO_TARGET);  // Set motor mode to go to target
     server.send(200, "text/plain", buildDebugJson("Moving to panel " + String(targetPanel)));
   } else {
     server.send(400, "text/plain", "Missing 'panel' argument");
@@ -200,7 +209,7 @@ void handleAdvancePanels() {
     int advanceCount = server.arg("count").toInt();
     int currentPanel = getCurrentPanel();
     targetPanel = (currentPanel + advanceCount) % PANELS_COUNT;
-    motorMode = GO_TO_TARGET;  // Set motor mode to go to target
+    setCurrentState(MOVING_TO_TARGET);  // Set motor mode to go to target
     server.send(200, "text/plain", buildDebugJson("From " + String(currentPanel) + ", Advancing " + String(advanceCount) + " panels to " + String(targetPanel)));
   } else {
     server.send(400, "text/plain", "Missing 'count' argument");
@@ -209,14 +218,14 @@ void handleAdvancePanels() {
 
 void handleCalibrate() {
   sendHeaders();
-  motorMode = GO_TO_CALIBRATION;  // Set motor mode for calibration
+  setCurrentState(CALIBRATING);  // Set motor mode for calibration
   server.send(200, "text/plain", buildDebugJson("Calibration started. Rotating until optical sensor edge is detected."));
 }
 
 void handleStop() {
   sendHeaders();
-  setMotorSpeed(0);     // Use the centralized function to stop the motor
-  motorMode = STOPPED;  // Set motor mode to stopped
+  setMotorSpeed(0);        // Use the centralized function to stop the motor
+  setCurrentState(STOPPED);  // Set motor mode to stopped
   int currentPanel = getCurrentPanel();
   targetPanel = currentPanel;
   server.send(200, "text/plain", buildDebugJson("Stopped. Current panel set to " + String(currentPanel)));
@@ -230,13 +239,11 @@ int getRemainingPulses() {
   return distance;
 }
 
-bool isOpticalSensorEdgeDetected() {
-  return (DETECTED_STATE == LOW && sensorState == HIGH && lastSensorState == LOW) ||
-         (DETECTED_STATE == HIGH && sensorState == LOW && lastSensorState == HIGH);
-         //TODO à voir car plus court mais moins explicite : return (sensorState != lastSensorState && sensorState == DETECTED_STATE);
+bool isTargetPanelReached() {
+  return getRemainingPulses() == 0;
 }
 
-float calculateCalibrationSpeed() {
+float calculateSpeedCalibration() {
   // Half speed when we are about to detect the 2nd edge  // TODO problème si on ralentit à la calibration initiale, au prochain tour à plein régime on va pas avoir exactement la même position ? Après essais pratiques, semblerait que ça fasse aucune différence car le tout est assez réactif même à pleine vitesse
   if (DETECTED_STATE == LOW) {
     return sensorState == LOW ? 0.5f : 1.0f;
@@ -245,11 +252,7 @@ float calculateCalibrationSpeed() {
   }
 }
 
-bool isTargetPanelReached() {
-  return getRemainingPulses() == 0;
-}
-
-float calculateEaseOutSpeed() {
+float calculateSpeedMovingToTarget() {
   int remainingPulses = getRemainingPulses();
   if (remainingPulses == 0) {
     return 0.f;
@@ -260,47 +263,61 @@ float calculateEaseOutSpeed() {
   } else if (remainingPulses <= PULSES_PER_PANEL * 5) {
     return 0.7f;
   } else {
-    return 1.0f;
+    return 1.0f;  // Constant speed accross all panels
   }
 }
 
-void processStateMachine() {
-  serialPrintThrottled("STATE", "motorMode:" + String(motorMode));
-  switch (motorMode) {
+void evaluateStateTransitions() {
+  switch (currentState) {
+    case STOPPED:
+      // Nothing to do, wait for command
+      break;
+    case MOVING_TO_TARGET: {
+      if (isTargetPanelReached()) {
+        currentState = STOPPED;
+      }
+      break;
+    }
+    case CALIBRATING: {
+      if (isOpticalEdgeDetected) {
+        currentState = STOPPED;
+      }
+      break;
+    }
+  }
+}
+
+void processStateActions() {
+  switch (currentState) {
     case STOPPED:
       setMotorSpeed(0);
       break;
-    case GO_TO_TARGET: {
-      if (isTargetPanelReached()) {
-        motorMode = STOPPED;
-        setMotorSpeed(0);
-      } else {
-        float speed = calculateEaseOutSpeed();
-        setMotorSpeed(speed);
-      }
-      break;
-    }
-    case GO_TO_CALIBRATION: {
-      if (isOpticalSensorEdgeDetected()) {
-        motorMode = STOPPED;
-        setMotorSpeed(0); //TODO ça m'embete un peu d'avoir setMotorSpeed ici car c'est déjà dans l'état STOPPED.... est-ce un problème ? d'un coté je préfère le faire direct plutôt que d'attendre la loop suivante
-        //TODO Splitter la machine d'état en deux ? une fonction pour les transitions, et une pour les actions
-      } else {
-        float speed = calculateCalibrationSpeed();
-        setMotorSpeed(speed);
-      }
-      break;
-    }
+    case MOVING_TO_TARGET: {
+      float speed = calculateSpeedMovingToTarget();
+      setMotorSpeed(speed);
+    } break;
+    case CALIBRATING: {
+      float speed = calculateSpeedCalibration();
+      setMotorSpeed(speed);
+    } break;
   }
 }
 
+
 void readSensors() {
+
+  //Read optical sensor state and do edge detection
   sensorState = digitalRead(OPTICAL_SENSOR_PIN);
-  if (isOpticalSensorEdgeDetected()) { //TODO remplacer par une variable isEdgeDetected comme ça je peux direct mettre lastState à jour et pas le gérer dehors de cette fonction. Faut le rendre inaccessible depuis dehors aussi
+  isOpticalEdgeDetected = (DETECTED_STATE == LOW && sensorState == HIGH && lastSensorState == LOW) ||
+                          (DETECTED_STATE == HIGH && sensorState == LOW && lastSensorState == HIGH); // TODO à voir car plus court mais moins explicite : return (sensorState != lastSensorState && sensorState == DETECTED_STATE);
+  lastSensorState = sensorState; //TODO rendre inaccessible en dehors ? 
+
+  //Read encoder value, reset if edge was detected
+  if (isOpticalEdgeDetected) { 
     serialPrintThrottled("OPTICALSTATE", "sensorState:" + String(sensorState) + " encoderValue:" + String(encoderValue));
-    setCurrentPanel(DEFAULT_PANEL);  // Set the current panel only on the specified edge
+    setCurrentPanel(DEFAULT_PANEL); 
   }
-  encoderValue = encoder.read();  // Update encoder value at the beginning of each loop
+  encoderValue = encoder.read(); 
 }
 
 void setup() {
@@ -337,10 +354,8 @@ void setup() {
 
 void loop() {
   readSensors();
-  processStateMachine();
-
-  // Update sensors last state
-  lastSensorState = sensorState;
+  evaluateStateTransitions();
+  processStateActions();
 #ifdef DEBUG_ENABLED
   serialPrintThrottled("ALL", buildDebugString());
 #endif
