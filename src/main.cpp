@@ -70,6 +70,9 @@ mais il y a toujours ce décalage...
 - pulse = 5, panel = 2, panel réel = 3
 - pulse = 6, panel = 3, panel réel = 3
 ...
+pas sûr que l'offset au moment du passage optique soit une bonne solution... est-ce que ça a un effet quand on sette un target ? à réfléchir
+j'ai aussi un décalage de 1 panel au moment de la calibration / passage optique. on dit que le panel par défaut est le 40, mais en fait on est au 41. Pourtant la réalité correspond
+
  */
 
 
@@ -85,6 +88,7 @@ mais il y a toujours ce décalage...
 const int PANELS_COUNT = 62;     // Nombre total de panneaux
 const int PULSES_PER_PANEL = 2;  // Ajuste pour 4 impulsions par panneau
 const int DEFAULT_PANEL = 40;    // Panel at optical sensor position (si on calibre, il s'arrête sur le panel précédent l'optique, donc s'il s'arrête au 3, l'optique est au 4)
+const int DEFAULT_PANEL_PULSE_OFFSET = 1;
 const int ENCODER_DIRECTION_SIGN = -1;
 const int OFFSET = 0;  // Offset between pulses and panel, must not exceed PULSES_PER_PANEL
 static_assert(OFFSET < PULSES_PER_PANEL, "OFFSET must be less than PULSES_PER_PANEL");
@@ -357,7 +361,7 @@ void readSensors() {
   //Read encoder value, reset if edge was detected
   if (isOpticalEdgeDetected) { 
     serialPrintThrottled("OPTICALSTATE", "sensorState:" + String(sensorState) + " encoderValue:" + String(encoderValue));
-    setCurrentPanel(DEFAULT_PANEL); 
+    setCurrentPulses(DEFAULT_PANEL * PULSES_PER_PANEL + DEFAULT_PANEL_PULSE_OFFSET);
   }
   encoderValue = encoder.read(); 
 }
