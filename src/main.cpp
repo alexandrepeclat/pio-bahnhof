@@ -16,6 +16,9 @@ void sendHeaders();
 float calculateSpeedMovingToTarget();
 int getRemainingPulses();
 void setMotorSpeed(float normalizedSpeed);
+void setTargetPanel(int panel);
+void handleAdvancePulses();
+int getTargetPanel();
 
 enum AppState {
   STOPPED,
@@ -53,6 +56,23 @@ enum AppState {
 // TODO stocker des trucs en EEPROM ? genre le panel courant pour redémarrer dessus ? 
 // TODO stocker des options en EEPROM ? genre s'il faut auto-calibrer au démarrage ou pas ? la vitesse de rotation ? le panel par défaut si démontage + remontage sans devoir reflasher ?
 // TODO Vérifier les valeurs passées depuis l'api un peu mieux en terme de limites et type
+//TODO go to rising/falling edges via API ? 
+
+
+/*
+TODO à voir car j'ai un décalage d'une pulse. je sais pas si c'est la position du front montant de l'optique ou autre chose... pose surtout problème pour le panneau 30 (praha)
+mais il y a toujours ce décalage... 
+- pulse = 0, panel = 0, panel réel = 0
+- pulse = 1, panel = 0, panel réel = 1
+- pulse = 2, panel = 1, panel réel = 1
+- pulse = 3, panel = 1, panel réel = 2
+- pulse = 4, panel = 2, panel réel = 2
+- pulse = 5, panel = 2, panel réel = 3
+- pulse = 6, panel = 3, panel réel = 3
+...
+ */
+
+
 #define DEBUG_ENABLED 1
 
 // Pins configuration
@@ -90,6 +110,7 @@ int lastSensorState = HIGH;  // Initialize to HIGH (not detected)
 bool errorFlag = false;      // Emergency stop flag
 String errorMessage = "";    // Emergency stop message
 AppState currentState = STOPPED;
+int targetPulses = 0;  // New targetPulses property
 
 #ifdef DEBUG_ENABLED
 std::map<String, String> lastDebugMessages;  // Map to store the last debug messages
@@ -126,15 +147,23 @@ void setCurrentPanel(int panel) {
   setCurrentPulses(pulses);
 }
 
+void setTargetPanel(int panel) {
+  targetPulses = (panel * PULSES_PER_PANEL + OFFSET);
+}
+
 int getTargetPulses() {
-  return (targetPanel * PULSES_PER_PANEL + OFFSET) /*% (PANELS_COUNT * PULSES_PER_PANEL) TODO a voir si modulo nécessaire mais en principe pas*/;
+  return targetPulses;
+}
+
+int getTargetPanel() {
+  return (targetPulses - OFFSET) / PULSES_PER_PANEL;
 }
 
 String buildDebugJson(String message) {
   String debugJson = "{";
   debugJson += "\"message\":\"" + message + "\"," +
                "\"currentPanel\":" + String(getCurrentPanel()) + "," +
-               "\"targetPanel\":" + String(targetPanel) + "," +
+               "\"targetPanel\":" + String(getTargetPanel()) + "," +
                "\"currentPulses\":" + String(getCurrentPulses()) + "," +
                "\"targetPulses\":" + String(getTargetPulses()) + "," +
                "\"rawPulses\":" + String(encoderValue) + "," +
@@ -148,8 +177,8 @@ String buildDebugJson(String message) {
 #ifdef DEBUG_ENABLED
 String buildDebugString() {
   String debugString = "state: " + String(currentState) + //TODO se passer de cette fonction et se contenter du JSON ou faire un tableau de valeurs formattées après coup ou passer un format de ligne en paramètre ?
-                       "currentPanel: " + String(getCurrentPanel()) +
-                       " targetPanel:" + String(targetPanel) +
+                       " currentPanel: " + String(getCurrentPanel()) +
+                       " targetPanel:" + String(getTargetPanel()) +
                        " currentPulses:" + String(getCurrentPulses()) +
                        " targetPulses:" + String(getTargetPulses()) +
                        " rawPulses:" + String(encoderValue) +
@@ -194,10 +223,11 @@ void handleGetCurrentPanel() {
 void handleMoveToPanel() {
   sendHeaders();
   if (server.hasArg("panel")) {
-    targetPanel = server.arg("panel").toInt();
-    targetPanel %= PANELS_COUNT;      // Assure que la cible est dans les limites
+    int panel = server.arg("panel").toInt();
+    panel %= PANELS_COUNT;  // Ensure the target is within bounds
+    setTargetPanel(panel);
     setCurrentState(MOVING_TO_TARGET);  // Set motor mode to go to target
-    server.send(200, "text/plain", buildDebugJson("Moving to panel " + String(targetPanel)));
+    server.send(200, "text/plain", buildDebugJson("Moving to panel " + String(getTargetPanel())));
   } else {
     server.send(400, "text/plain", "Missing 'panel' argument");
   }
@@ -208,9 +238,22 @@ void handleAdvancePanels() {
   if (server.hasArg("count")) {
     int advanceCount = server.arg("count").toInt();
     int currentPanel = getCurrentPanel();
-    targetPanel = (currentPanel + advanceCount) % PANELS_COUNT;
+    setTargetPanel((currentPanel + advanceCount) % PANELS_COUNT); //TODO faire les modulos dans les setters (y compris setTargetPulses ce qui serait sa raison d'être)
     setCurrentState(MOVING_TO_TARGET);  // Set motor mode to go to target
-    server.send(200, "text/plain", buildDebugJson("From " + String(currentPanel) + ", Advancing " + String(advanceCount) + " panels to " + String(targetPanel)));
+    server.send(200, "text/plain", buildDebugJson("From " + String(currentPanel) + ", Advancing " + String(advanceCount) + " panels to " + String(getTargetPanel())));
+  } else {
+    server.send(400, "text/plain", "Missing 'count' argument");
+  }
+}
+
+void handleAdvancePulses() {
+  sendHeaders();
+  if (server.hasArg("count")) {
+    int pulseCount = server.arg("count").toInt();
+    targetPulses += pulseCount;
+    targetPulses %= (PANELS_COUNT * PULSES_PER_PANEL);  // Ensure targetPulses is within bounds
+    setCurrentState(MOVING_TO_TARGET);  // Set motor mode to go to target
+    server.send(200, "text/plain", buildDebugJson("Advancing " + String(pulseCount) + " pulses to " + String(targetPulses)));
   } else {
     server.send(400, "text/plain", "Missing 'count' argument");
   }
@@ -227,13 +270,12 @@ void handleStop() {
   setMotorSpeed(0);        // Use the centralized function to stop the motor
   setCurrentState(STOPPED);  // Set motor mode to stopped
   int currentPanel = getCurrentPanel();
-  targetPanel = currentPanel;
+  setTargetPanel(currentPanel);
   server.send(200, "text/plain", buildDebugJson("Stopped. Current panel set to " + String(currentPanel)));
 }
 
 int getRemainingPulses() {
   int currentPulses = getCurrentPulses();
-  int targetPulses = getTargetPulses();
   int totalPulses = PANELS_COUNT * PULSES_PER_PANEL;
   int distance = (targetPulses - currentPulses + totalPulses) % totalPulses;  // Calcule la distance en avance (horaire)
   return distance;
@@ -338,6 +380,7 @@ void setup() {
   server.on("/getDebug", HTTP_GET, handleGetDebug);
   server.on("/moveToPanel", HTTP_POST, handleMoveToPanel);
   server.on("/advancePanels", HTTP_POST, handleAdvancePanels);
+  server.on("/advancePulses", HTTP_POST, handleAdvancePulses); 
   server.on("/calibrate", HTTP_GET, handleCalibrate);
   server.on("/stop", HTTP_GET, handleStop);
   server.begin();

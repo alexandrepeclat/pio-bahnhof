@@ -7,86 +7,93 @@
     <title>CFF Flip</title>
     <script>
         const cities = [
-            'Sektor A',
-            'Sektor B',
-            'Sektor C',
-            'Sektor D',
-            'Feldkirch',
-            'Bellinzona',
-            'Biel',
-            'Bern',
-            'Brig',
-            'Basel',
-            'Buchs SG',
-            'Chur',
-            'Chiasso',
-            'Arth-Goldau',
-            'Genève',
-            'Göschenen',
-            'Interlaken',
-            'Lugano',
-            'Locarno',
-            'Lausanne',
-            'Zagreb',
-            'Olten',
-            'Romanshorn',
-            'Rorschach',
-            'St. Gallen',
-            'Schaffhausen',
-            'Konstanz',
-            'Winterthur',
-            'Amsterdam',
-            'Ancona',
-            'Praha',
-            'Bruxelles',
-            'Budapest',
-            'Livorno',
-            'Genova',
-            'Graz',
-            'Hamburg',
-            'Innsbruck',
-            'Klagenfurt',
-            'Leipzig Desden Praha',
-            'Milano',
-            'München',
-            'Napoli',
-            'Nürnberg',
-            'Berlin',
-            'Paris',
-            'Roma',
-            'La Spezia',
-            'Venezia',
-            'Ventimiglia',
-            'Wien',
-            'Oesterreich',
-            'Deutschland',
-            'France',
-            'Italia',
-            'Singen',
-            'Ausland',
-            'Nicht einsteigen',
-            'Reservierte Wagen',
-            'Beachten',
-            'Stuttgart',
-            'Vide'
+            { name: 'Sektor A', keywords: ['sector a', 'zone a'] },
+            { name: 'Sektor B', keywords: ['sector b', 'zone b'] },
+            { name: 'Sektor C', keywords: ['sector c', 'zone c'] },
+            { name: 'Sektor D', keywords: ['sector d', 'zone d'] },
+            { name: 'Feldkirch', keywords: ['feldkirch'] },
+            { name: 'Bellinzona', keywords: ['bellinzona'] },
+            { name: 'Biel', keywords: ['biel', 'bienne'] },
+            { name: 'Bern', keywords: ['bern'] },
+            { name: 'Brig', keywords: ['brig'] },
+            { name: 'Basel', keywords: ['basel', 'bâle'] },
+            { name: 'Buchs SG', keywords: ['buchs'] },
+            { name: 'Chur', keywords: ['chur'] },
+            { name: 'Chiasso', keywords: ['chiasso'] },
+            { name: 'Arth-Goldau', keywords: ['arth-goldau'] },
+            { name: 'Genève', keywords: ['genève', 'geneva'] },
+            { name: 'Göschenen', keywords: ['göschenen'] },
+            { name: 'Interlaken', keywords: ['interlaken'] },
+            { name: 'Lugano', keywords: ['lugano'] },
+            { name: 'Locarno', keywords: ['locarno'] },
+            { name: 'Lausanne', keywords: ['lausanne'] },
+            { name: 'Zagreb', keywords: ['zagreb'] },
+            { name: 'Olten', keywords: ['olten'] },
+            { name: 'Romanshorn', keywords: ['romanshorn'] },
+            { name: 'Rorschach', keywords: ['rorschach'] },
+            { name: 'St. Gallen', keywords: ['st. gallen'] },
+            { name: 'Schaffhausen', keywords: ['schaffhausen'] },
+            { name: 'Konstanz', keywords: ['konstanz'] },
+            { name: 'Winterthur', keywords: ['winterthur'] },
+            { name: 'Amsterdam', keywords: ['amsterdam'] },
+            { name: 'Ancona', keywords: ['ancona'] },
+            { name: 'Praha', keywords: ['praha', 'prague'] },
+            { name: 'Bruxelles', keywords: ['bruxelles', 'brussels'] },
+            { name: 'Budapest', keywords: ['budapest'] },
+            { name: 'Livorno', keywords: ['livorno'] },
+            { name: 'Genova', keywords: ['genova', 'genoa'] },
+            { name: 'Graz', keywords: ['graz'] },
+            { name: 'Hamburg', keywords: ['hamburg'] },
+            { name: 'Innsbruck', keywords: ['innsbruck'] },
+            { name: 'Klagenfurt', keywords: ['klagenfurt'] },
+            { name: 'Leipzig Desden Praha', keywords: ['leipzig', 'desden', 'praha', 'prague'] },
+            { name: 'Milano', keywords: ['milano', 'milan'] },
+            { name: 'München', keywords: ['münchen', 'munich'] },
+            { name: 'Napoli', keywords: ['napoli', 'naples'] },
+            { name: 'Nürnberg', keywords: ['nürnberg', 'nuremberg'] },
+            { name: 'Berlin', keywords: ['berlin'] },
+            { name: 'Paris', keywords: ['paris'] },
+            { name: 'Roma', keywords: ['roma', 'rome'] },
+            { name: 'La Spezia', keywords: ['la spezia'] },
+            { name: 'Venezia', keywords: ['venezia', 'venice'] },
+            { name: 'Ventimiglia', keywords: ['ventimiglia'] },
+            { name: 'Wien', keywords: ['wien', 'vienna'] },
+            { name: 'Oesterreich', keywords: ['oesterreich', 'austria'] },
+            { name: 'Deutschland', keywords: ['deutschland', 'germany'] },
+            { name: 'France', keywords: ['france'] },
+            { name: 'Italia', keywords: ['italie', 'italia', 'italy'] },
+            { name: 'Singen', keywords: ['singen'] },
+            { name: 'Ausland', keywords: ['ausland', 'abroad'] },
+            { name: 'Nicht einsteigen', keywords: ['nicht einsteigen', 'do not board'] },
+            { name: 'Reservierte Wagen', keywords: ['reservierte wagen', 'reserved cars'] },
+            { name: 'Beachten', keywords: ['beachten', 'note'] },
+            { name: 'Stuttgart', keywords: ['stuttgart'] },
+            { name: 'Vide', keywords: ['vide', 'empty'] }
         ];
 
+
+
         document.addEventListener('DOMContentLoaded', () => {
-            if ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) {
-                const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+            const SpeechGrammarList = window.SpeechGrammarList || window.webkitSpeechGrammarList
+            if (SpeechRecognition) {
                 const recognition = new SpeechRecognition();
-                const grammar = '#JSGF V1.0; grammar cities; public <city> = ' + cities.join(' | ') + ' ;';
-                //const speechRecognitionList = new SpeechGrammarList();
-                //speechRecognitionList.addFromString(grammar, 1);
-                //recognition.grammars = speechRecognitionList;
+
+                if (SpeechGrammarList) {
+                    const grammar = '#JSGF V1.0; grammar cities; public <city> = ' + cities.map(city => city.keywords.join(' | ')).join(' | ') + ' ;';
+                    console.debug("Grammar:", grammar);
+                    const speechRecognitionList = new SpeechGrammarList();
+                    speechRecognitionList.addFromString(grammar, 1);
+                    recognition.grammars = speechRecognitionList;
+                }
                 recognition.continuous = false;
                 recognition.interimResults = false;
                 recognition.lang = 'fr-CH';
 
                 recognition.onresult = (event) => {
                     const transcript = event.results[0][0].transcript.toLowerCase();
-                    console.debug("speech recognition result:", transcript);
-                    const cityIndex = cities.findIndex(city => transcript.includes(city.toLowerCase()));
+                    console.debug("speech recognition result:", event.results, transcript);
+                    const cityIndex = cities.findIndex(city => city.keywords.some(keyword => transcript.includes(keyword)));
                     if (cityIndex !== -1) {
                         document.getElementById('citySelect').value = cityIndex;
                         moveToPanelByCity();
@@ -98,6 +105,9 @@
                 };
 
                 const pttButton = document.getElementById('pttButton');
+                const toggleButton = document.getElementById('toggleButton');
+                let isRecognitionActive = false;
+
                 pttButton.addEventListener('pointerdown', () => {
                     recognition.start();
                     pttButton.style.backgroundColor = 'red';
@@ -112,6 +122,19 @@
                 });
                 pttButton.addEventListener("touchstart", (event) => {
                     event.preventDefault();
+                });
+
+                toggleButton.addEventListener('click', () => {
+                    if (isRecognitionActive) {
+                        recognition.stop();
+                        toggleButton.textContent = 'Start Recognition';
+                        toggleButton.style.backgroundColor = '';
+                    } else {
+                        recognition.start();
+                        toggleButton.textContent = 'Stop Recognition';
+                        toggleButton.style.backgroundColor = 'red';
+                    }
+                    isRecognitionActive = !isRecognitionActive;
                 });
             } else {
                 document.getElementById('responseMessage').textContent = 'Speech recognition not supported in this browser.';
@@ -129,6 +152,7 @@
             <!-- Options will be populated by JavaScript -->
         </select>
         <button id="pttButton">Push to Talk</button>
+        <button id="toggleButton">Start Recognition</button>
 
         <h2>Actions</h2>
         <button onclick="calibrate()">Calibrate</button>
@@ -144,6 +168,9 @@
         <input type="number" id="advancePanelsInput" placeholder="Enter Count" value="5">
         <button onclick="advancePanels()">Advance Panels</button>
 
+        <h2>Advance Pulses</h2>
+        <input type="number" id="advancePulsesInput" placeholder="Enter Pulse Count" value="10">
+        <button onclick="advancePulses()">Advance Pulses</button>
 
         <p id="responseMessage"></p>
     </div>
@@ -156,7 +183,7 @@
         cities.forEach((city, index) => {
             const option = document.createElement('option');
             option.value = index;
-            option.textContent = index + " - " + city;
+            option.textContent = index + " - " + city.name;
             citySelect.appendChild(option);
         });
 
@@ -226,6 +253,15 @@
             const panelIndex = (currentPanel + nbPanels) % cities.length;
             console.debug(document.getElementById('citySelect').value, nbPanels, panelIndex, cities[panelIndex]);
             updateCitySelect(panelIndex);
+        }
+
+        function advancePulses() {
+            const pulseCount = parseInt(document.getElementById('advancePulsesInput').value);
+            if (!pulseCount) {
+                alert('Please enter a pulse count.');
+                return;
+            }
+            apiRequest('/advancePulses', 'POST', { count: pulseCount });
         }
 
         function calibrate() {
