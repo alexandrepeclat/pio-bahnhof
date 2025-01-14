@@ -79,7 +79,7 @@ idée: considérer de trigger la mise à 0 lors du prochain changement d'encodeu
  
  
  MEILLEURE IDEE : voir description des valeurs d'offset. avancer jusqu'à l'optique rising edge, voir si on est sur un step pair/impair et ajuster l'offset optique.
- 
+ MEILLEURE IDEE 2 : un seul offset est nécessaire au moment du passage de l'optique. Pour le définir, il suffit de tester successivement 0,1,2,3... pour voir si ça atterit sur un panel de manière correcte (centré) on peut même corriger le no de panel dans un second temps
  
  */
 
