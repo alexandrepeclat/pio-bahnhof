@@ -10,7 +10,6 @@ int getCurrentPanel();
 void setCurrentPulses(int pulses);
 void setCurrentPanel(int panel);
 int getTargetPulses();
-String buildDebugString();
 String buildDebugJson(String message);
 void sendHeaders();
 float calculateSpeedMovingToTarget();
@@ -37,6 +36,7 @@ enum AppState {
 //- Permettre de découpler les roues ? dur
 //- Trous de fixation corrects ? l'un était trop étroit
 //- Trou de roue optique trop petit il semble
+//- Trous des vis encodeur pas assez profonds
 //- Voir comment fixer axe roue optique + rondelles
 //- Voir comment fixer roue encodeur + rondelles
 //- Prévoir plus de place pour pins capteur optique
@@ -50,18 +50,21 @@ enum AppState {
 // TODO ? stocker la valeur de l'encodeur dans variable et la remettre à zéro avec l'optique, mais laisser la valeur de l'encodeur originale. Permettrait de voir s'il y a un décalage au début et s'il y a un décalage progressif du à ratés en raison d'une boucle trop lente
 // - ou plutôt afficher la valeur de l'encodeur brute lors du passage de l'optique
 // - et faire une variable previousPulses pour voir si une boucle ne loupe pas un step
+// - vérifier qu'on a bien atteint le nombre de steps max au moment du passage et afficher un warning sinon
 // TODO s'assurer que tous les "getters" utilisés notamment dans les debug ne change pas les états ou valeurs :-)
 // TODO à voir la fonction de calibration ça me plait moyen : on doit gérer l'optique à plusieurs endroits (soit abstraire la notion rising/falling/low/high) (soit voir si pas mieux où on donne simplement le panel à atteindre et on laisse calibrer automatiquement, ce qui évite d'avoir une vitesse de calibration différente de la vitesse en opération)
 // TODO état ERROR ? en même temps le flag reste nécessaire car il garantit qu'on peut pas setter à nouveau autre chose via transition ou autre... mais la boucle continue de tourner et calculer des trucs pour rien...
-// TODO stocker des trucs en EEPROM ? genre le panel courant pour redémarrer dessus ? 
+// TODO stocker des trucs en EEPROM ? genre le panel courant pour redémarrer dessus ?
 // TODO stocker des options en EEPROM ? genre s'il faut auto-calibrer au démarrage ou pas ? la vitesse de rotation ? le panel par défaut si démontage + remontage sans devoir reflasher ?
 // TODO Vérifier les valeurs passées depuis l'api un peu mieux en terme de limites et type
-//TODO go to rising/falling edges via API ? 
-
+// TODO reconnexion wifi si coupure
+// TODO go to rising/falling edges via API ?
+//TODO détecter si blocage (en fonction de l'encodeur et du temps écoulé) et emergencystop
+//TODO garder les N derniers messages (erreur ou warning...)
 
 /*
 TODO à voir car j'ai un décalage d'une pulse. je sais pas si c'est la position du front montant de l'optique ou autre chose... pose surtout problème pour le panneau 30 (praha)
-mais il y a toujours ce décalage... 
+mais il y a toujours ce décalage...
 - pulse = 0, panel = 0, panel réel = 0
 - pulse = 1, panel = 0, panel réel = 1
 - pulse = 2, panel = 1, panel réel = 1
@@ -70,11 +73,15 @@ mais il y a toujours ce décalage...
 - pulse = 5, panel = 2, panel réel = 3
 - pulse = 6, panel = 3, panel réel = 3
 ...
-pas sûr que l'offset au moment du passage optique soit une bonne solution... est-ce que ça a un effet quand on sette un target ? à réfléchir
+pas sûr que l'offset au moment du passage optique soit une bonne solution... est-ce que ça a un effet quand on sette un target ? à réfléchir. Aussi si on met un offset de 1 au départ, la pulse 0 n'existe pas, du coup vu qu'on fait modulo pulses totales on devrait faire + offset aussi non ?
 j'ai aussi un décalage de 1 panel au moment de la calibration / passage optique. on dit que le panel par défaut est le 40, mais en fait on est au 41. Pourtant la réalité correspond
-
+idée: considérer de trigger la mise à 0 lors du prochain changement d'encodeur après un front montant de l'optique ? comme ça c'est calqué sur les steps de l'encodeur. Mais en même temps, on remet à 0 l'encodeur lui-même donc le step 1 sera de toute manière calqué sur l'encodeur....:-P
+ 
+ 
+ MEILLEURE IDEE : voir description des valeurs d'offset. avancer jusqu'à l'optique rising edge, voir si on est sur un step pair/impair et ajuster l'offset optique.
+ 
+ 
  */
-
 
 #define DEBUG_ENABLED 1
 
@@ -85,30 +92,30 @@ j'ai aussi un décalage de 1 panel au moment de la calibration / passage optique
 #define OPTICAL_SENSOR_PIN D6  // Pin pour le capteur optique
 
 // Constants
-const int PANELS_COUNT = 62;     // Nombre total de panneaux
-const int PULSES_PER_PANEL = 2;  // Ajuste pour 4 impulsions par panneau
-const int DEFAULT_PANEL = 40;    // Panel at optical sensor position (si on calibre, il s'arrête sur le panel précédent l'optique, donc s'il s'arrête au 3, l'optique est au 4)
-const int DEFAULT_PANEL_PULSE_OFFSET = 1;
+const int PANELS_COUNT = 62;               // Nombre total de panneaux
+const int PULSES_PER_PANEL = 2;            // Ajuste pour 4 impulsions par panneau
+const int DEFAULT_PANEL = 40;              // Panel at optical sensor position
+const int DEFAULT_PANEL_PULSE_OFFSET = 1;  // Optical sensor is detected at nth pulse of the default panel //TODO Directement calculer un DEFAULT_PULSE via les deux variables et faire en sorte que ce soit dans les limites [0-PULSES_TOTAL]
 const int ENCODER_DIRECTION_SIGN = -1;
-const int OFFSET = 0;  // Offset between pulses and panel, must not exceed PULSES_PER_PANEL
-static_assert(OFFSET < PULSES_PER_PANEL, "OFFSET must be less than PULSES_PER_PANEL");
-static_assert(OFFSET >= 0, "OFFSET must be non-negative");
+const int TARGET_PULSE_OFFSET = 1;  // When going to target, go to the nth pulse of the target panel //TODO chuis tjrs pas sur que ce soit utile... au moment du passage optique, suffit de lui faire croire qu'il est en avant ou en arrière et ça devrait faire le job pareil
+static_assert(TARGET_PULSE_OFFSET < PULSES_PER_PANEL, "OFFSET must be less than PULSES_PER_PANEL");
+static_assert(TARGET_PULSE_OFFSET >= 0, "OFFSET must be non-negative");
 
 #define DETECTED_STATE LOW  // Define the detected state for the optical sensor
 
 // Servo configuration
 Servo servo;
 const int STOP_SPEED = 90;  // Valeur pour arrêter le servo
-const int RUN_SPEED = 140;  // Vitesse du servo pour avancer (91-180) 140 c'est bien
+const int RUN_SPEED = 140;  // Vitesse du servo pour avancer (91-180) 140 c'est bien (met 6 secondes à faire un tour)
 static_assert(RUN_SPEED > 90, "RUN_SPEED must be greater than 90 or everything will break !");
 
 // Globals
 ESP8266WebServer server(80);
 Encoder encoder(ENCODER_PIN_A, ENCODER_PIN_B);
-int targetPanel = 0;        // Panneau cible //TODO utiliser un targetPulses et virer quasi tous les appels get/setPanel sauf depuis l'api ou les debug
-bool motorEnabled = false;  // Boolean to enable/disable motor, starts disabled
-int encoderValue = 0;       // Variable to store the encoder value
-bool isOpticalEdgeDetected = false; // Variable to store if the optical edge is detected during the current loop
+int targetPanel = 0;                 // Panneau cible //TODO utiliser un targetPulses et virer quasi tous les appels get/setPanel sauf depuis l'api ou les debug
+bool motorEnabled = false;           // Boolean to enable/disable motor, starts disabled
+int encoderValue = 0;                // Variable to store the encoder value
+bool isOpticalEdgeDetected = false;  // Variable to store if the optical edge is detected during the current loop
 int sensorState = LOW;
 int lastSensorState = HIGH;  // Initialize to HIGH (not detected)
 bool errorFlag = false;      // Emergency stop flag
@@ -138,7 +145,7 @@ int getCurrentPulses() {
 }
 
 int getCurrentPanel() {
-  return (getCurrentPulses() - OFFSET) / PULSES_PER_PANEL;
+  return getCurrentPulses() / PULSES_PER_PANEL;
 }
 
 void setCurrentPulses(int pulses) {
@@ -146,13 +153,8 @@ void setCurrentPulses(int pulses) {
   encoder.write(pulses * ENCODER_DIRECTION_SIGN);
 }
 
-void setCurrentPanel(int panel) {
-  int pulses = (panel * PULSES_PER_PANEL + OFFSET);
-  setCurrentPulses(pulses);
-}
-
 void setTargetPanel(int panel) {
-  targetPulses = (panel * PULSES_PER_PANEL + OFFSET);
+  targetPulses = (panel * PULSES_PER_PANEL) + TARGET_PULSE_OFFSET;
 }
 
 int getTargetPulses() {
@@ -160,41 +162,29 @@ int getTargetPulses() {
 }
 
 int getTargetPanel() {
-  return (targetPulses - OFFSET) / PULSES_PER_PANEL;
+  return targetPulses / PULSES_PER_PANEL;
 }
 
 String buildDebugJson(String message) {
   String debugJson = "{";
-  debugJson += "\"message\":\"" + message + "\"," +
-               "\"currentPanel\":" + String(getCurrentPanel()) + "," +
-               "\"targetPanel\":" + String(getTargetPanel()) + "," +
-               "\"currentPulses\":" + String(getCurrentPulses()) + "," +
-               "\"targetPulses\":" + String(getTargetPulses()) + "," +
-               "\"rawPulses\":" + String(encoderValue) + "," +
-               "\"optical\":" + String(sensorState) + "," +
-               "\"errorFlag\":" + String(errorFlag) + "," +
-               "\"errorMessage\":\"" + errorMessage + "\"";
+  debugJson += "\"msg\":\"" + message + "\"" +
+               ",\"state\":" + String(currentState) +
+               ",\"currentPanel\":" + String(getCurrentPanel()) +
+               ",\"currentPulses\":" + String(getCurrentPulses()) +
+               ",\"targetPanel\":" + String(getTargetPanel()) +
+               ",\"targetPulses\":" + String(getTargetPulses()) +
+               ",\"rawPulses\":" + String(encoderValue) +
+               ",\"optical\":" + String(sensorState) +
+               ",\"edge\":" + String(isOpticalEdgeDetected) +
+               ",\"dist\":" + String(getRemainingPulses()) +
+               ",\"speed\":" + String(calculateSpeedMovingToTarget()) +
+               ",\"errorFlag\":" + String(errorFlag) +
+               ",\"errorMessage\":\"" + errorMessage + "\"";
   debugJson += "}";
   return debugJson;
 }
 
 #ifdef DEBUG_ENABLED
-String buildDebugString() {
-  String debugString = "state: " + String(currentState) + //TODO se passer de cette fonction et se contenter du JSON ou faire un tableau de valeurs formattées après coup ou passer un format de ligne en paramètre ?
-                       " currentPanel: " + String(getCurrentPanel()) +
-                       " targetPanel:" + String(getTargetPanel()) +
-                       " currentPulses:" + String(getCurrentPulses()) +
-                       " targetPulses:" + String(getTargetPulses()) +
-                       " rawPulses:" + String(encoderValue) +
-                       " optical:" + String(sensorState) +
-                       " distance: " + String(getRemainingPulses()) +
-                       " speed: " + String(calculateSpeedMovingToTarget()) +
-                       " errorFlag: " + String(errorFlag) +
-                       " errorMessage: " + errorMessage;
-
-  return debugString;
-}
-
 void serialPrintThrottled(String key, String message) {
   if (lastDebugMessages[key] != message) {
     Serial.println(message);
@@ -242,8 +232,8 @@ void handleAdvancePanels() {
   if (server.hasArg("count")) {
     int advanceCount = server.arg("count").toInt();
     int currentPanel = getCurrentPanel();
-    setTargetPanel((currentPanel + advanceCount) % PANELS_COUNT); //TODO faire les modulos dans les setters (y compris setTargetPulses ce qui serait sa raison d'être)
-    setCurrentState(MOVING_TO_TARGET);  // Set motor mode to go to target
+    setTargetPanel((currentPanel + advanceCount) % PANELS_COUNT);  // TODO faire les modulos dans les setters (y compris setTargetPulses ce qui serait sa raison d'être)
+    setCurrentState(MOVING_TO_TARGET);                             // Set motor mode to go to target
     server.send(200, "text/plain", buildDebugJson("From " + String(currentPanel) + ", Advancing " + String(advanceCount) + " panels to " + String(getTargetPanel())));
   } else {
     server.send(400, "text/plain", "Missing 'count' argument");
@@ -254,9 +244,9 @@ void handleAdvancePulses() {
   sendHeaders();
   if (server.hasArg("count")) {
     int pulseCount = server.arg("count").toInt();
-    targetPulses += pulseCount;
-    targetPulses %= (PANELS_COUNT * PULSES_PER_PANEL);  // Ensure targetPulses is within bounds
-    setCurrentState(MOVING_TO_TARGET);  // Set motor mode to go to target
+    int currentPulses = getCurrentPulses();
+    targetPulses = (currentPulses + pulseCount) % (PANELS_COUNT * PULSES_PER_PANEL);  // TODO faire les modulos dans les setters (y compris setTargetPulses ce qui serait sa raison d'être)
+    setCurrentState(MOVING_TO_TARGET);                                                // Set motor mode to go to target
     server.send(200, "text/plain", buildDebugJson("Advancing " + String(pulseCount) + " pulses to " + String(targetPulses)));
   } else {
     server.send(400, "text/plain", "Missing 'count' argument");
@@ -271,7 +261,7 @@ void handleCalibrate() {
 
 void handleStop() {
   sendHeaders();
-  setMotorSpeed(0);        // Use the centralized function to stop the motor
+  setMotorSpeed(0);          // Use the centralized function to stop the motor
   setCurrentState(STOPPED);  // Set motor mode to stopped
   int currentPanel = getCurrentPanel();
   setTargetPanel(currentPanel);
@@ -337,6 +327,7 @@ void processStateActions() {
   switch (currentState) {
     case STOPPED:
       setMotorSpeed(0);
+      // setTargetPulses(getCurrentPulses()); //TODO Nécessaire pour pas que ça reparte après calibration ?
       break;
     case MOVING_TO_TARGET: {
       float speed = calculateSpeedMovingToTarget();
@@ -349,21 +340,19 @@ void processStateActions() {
   }
 }
 
-
 void readSensors() {
-
-  //Read optical sensor state and do edge detection
+  // Read optical sensor state and do edge detection
   sensorState = digitalRead(OPTICAL_SENSOR_PIN);
   isOpticalEdgeDetected = (DETECTED_STATE == LOW && sensorState == HIGH && lastSensorState == LOW) ||
-                          (DETECTED_STATE == HIGH && sensorState == LOW && lastSensorState == HIGH); // TODO à voir car plus court mais moins explicite : return (sensorState != lastSensorState && sensorState == DETECTED_STATE);
-  lastSensorState = sensorState; //TODO rendre inaccessible en dehors ? 
+                          (DETECTED_STATE == HIGH && sensorState == LOW && lastSensorState == HIGH);
+  lastSensorState = sensorState;  // TODO rendre inaccessible en dehors ?
 
-  //Read encoder value, reset if edge was detected
-  if (isOpticalEdgeDetected) { 
-    serialPrintThrottled("OPTICALSTATE", "sensorState:" + String(sensorState) + " encoderValue:" + String(encoderValue));
+  // Read encoder value, reset if edge was detected
+  if (isOpticalEdgeDetected) {
+    serialPrintThrottled("OPTICALSTATE", "Optical edge detected");
     setCurrentPulses(DEFAULT_PANEL * PULSES_PER_PANEL + DEFAULT_PANEL_PULSE_OFFSET);
   }
-  encoderValue = encoder.read(); 
+  encoderValue = encoder.read();
 }
 
 void setup() {
@@ -384,7 +373,7 @@ void setup() {
   server.on("/getDebug", HTTP_GET, handleGetDebug);
   server.on("/moveToPanel", HTTP_POST, handleMoveToPanel);
   server.on("/advancePanels", HTTP_POST, handleAdvancePanels);
-  server.on("/advancePulses", HTTP_POST, handleAdvancePulses); 
+  server.on("/advancePulses", HTTP_POST, handleAdvancePulses);
   server.on("/calibrate", HTTP_GET, handleCalibrate);
   server.on("/stop", HTTP_GET, handleStop);
   server.begin();
@@ -404,7 +393,7 @@ void loop() {
   evaluateStateTransitions();
   processStateActions();
 #ifdef DEBUG_ENABLED
-  serialPrintThrottled("ALL", buildDebugString());
+  serialPrintThrottled("ALL", buildDebugJson(""));
 #endif
   server.handleClient();  // Handle incoming HTTP requests
 }
