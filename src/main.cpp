@@ -18,6 +18,14 @@ void setMotorSpeed(float normalizedSpeed);
 void setTargetPanel(int panel);
 void handleAdvancePulses();
 int getTargetPanel();
+void emergencyStop(String message);
+
+template <typename T>
+void assertThis(bool condition, T&& message) {
+  if (!condition) {
+    emergencyStop(std::forward<T>(message));
+  }
+}
 
 enum AppState {
   STOPPED,
@@ -43,11 +51,9 @@ enum AppState {
 //- Roue libre à insérer une fois que tout est en place pour permettre de libérer le mécanisme en manuel ?
 
 // TODO SOFTWARE :
-//- Sécurités si valeur hors norme, stoppe servo
-//- Remplacer service setCurrentPanel par un service calibration qui met l'état indéfini sur le panel courant (+ gérer panel courant indéfini tourne un tour jusqu'à déclencher l'optique)
-//- Du coup démarrer en "indéfini" mais ne pas bouger, et à la première commande, aller jusqu'à l'optique au minimum
-// TODO setTargetPanel ?
-// TODO ? stocker la valeur de l'encodeur dans variable et la remettre à zéro avec l'optique, mais laisser la valeur de l'encodeur originale. Permettrait de voir s'il y a un décalage au début et s'il y a un décalage progressif du à ratés en raison d'une boucle trop lente
+// TODO Sécurités si valeur hors norme, stoppe servo
+// TODO Démarrer en "indéfini" mais ne pas bouger, et à la première commande, aller jusqu'à l'optique au minimum
+// TODO ? stocker la valeur de l'encodeur dans variable et la remettre à zéro avec l'optique, mais laisser la valeur de l'encodeur originale. 
 // - ou plutôt afficher la valeur de l'encodeur brute lors du passage de l'optique
 // - et faire une variable previousPulses pour voir si une boucle ne loupe pas un step
 // - vérifier qu'on a bien atteint le nombre de steps max au moment du passage et afficher un warning sinon
@@ -61,6 +67,11 @@ enum AppState {
 // TODO go to rising/falling edges via API ?
 //TODO détecter si blocage (en fonction de l'encodeur et du temps écoulé) et emergencystop
 //TODO garder les N derniers messages (erreur ou warning...)
+//TODO API avec commandes plus poussées sur même endpoint ? par ex pour aider à définir les offsets
+// - positionner par incréments de steps le panneau 0 à son tout début
+// - lancer moteur jusqu'à l'optique et récupérer la valeur de l'encodeur à ce moment
+// - calculer la pulse courante (attention au sens) et les constantes DEFAULT...
+// - en tenant compte de l'offset et en remettant l'encodeur à 0 on obtient le panel courant et on peut vérifier si c'est OK
 
 /*
 TODO à voir car j'ai un décalage d'une pulse. je sais pas si c'est la position du front montant de l'optique ou autre chose... pose surtout problème pour le panneau 30 (praha)
@@ -79,8 +90,8 @@ idée: considérer de trigger la mise à 0 lors du prochain changement d'encodeu
  
  
  MEILLEURE IDEE : voir description des valeurs d'offset. avancer jusqu'à l'optique rising edge, voir si on est sur un step pair/impair et ajuster l'offset optique.
- MEILLEURE IDEE 2 : un seul offset est nécessaire au moment du passage de l'optique. Pour le définir, il suffit de tester successivement 0,1,2,3... pour voir si ça atterit sur un panel de manière correcte (centré) on peut même corriger le no de panel dans un second temps
- 
+ MEILLEURE IDEE ? : un seul offset est nécessaire au moment du passage de l'optique. Pour le définir, il suffit de tester successivement 0,1,2,3... pour voir si ça atterit sur un panel de manière correcte (centré) on peut même corriger le no de panel dans un second temps
+ Après réflexion... faut bien 2 offsets car quand on fait le getPanel suis pas sûr que un seul offset suffise pour retourner le bon no de panel. ça marchera que si on est sur le panel target, mais pas sur un panel d'avant ou après (même si les steps en bordure sont pas stables)
  */
 
 #define DEBUG_ENABLED 1
@@ -94,13 +105,14 @@ idée: considérer de trigger la mise à 0 lors du prochain changement d'encodeu
 // Constants
 const int PANELS_COUNT = 62;               // Nombre total de panneaux
 const int PULSES_PER_PANEL = 2;            // Ajuste pour 4 impulsions par panneau
+const int PULSES_COUNT = PANELS_COUNT * PULSES_PER_PANEL;  // Nombre total d'impulsions
 const int DEFAULT_PANEL = 40;              // Panel at optical sensor position
 const int DEFAULT_PANEL_PULSE_OFFSET = 1;  // Optical sensor is detected at nth pulse of the default panel //TODO Directement calculer un DEFAULT_PULSE via les deux variables et faire en sorte que ce soit dans les limites [0-PULSES_TOTAL]
+const int DEFAULT_PULSE = (DEFAULT_PANEL * PULSES_PER_PANEL) + DEFAULT_PANEL_PULSE_OFFSET;
 const int ENCODER_DIRECTION_SIGN = -1;
 const int TARGET_PULSE_OFFSET = 1;  // When going to target, go to the nth pulse of the target panel //TODO chuis tjrs pas sur que ce soit utile... au moment du passage optique, suffit de lui faire croire qu'il est en avant ou en arrière et ça devrait faire le job pareil
-static_assert(TARGET_PULSE_OFFSET < PULSES_PER_PANEL, "OFFSET must be less than PULSES_PER_PANEL");
-static_assert(TARGET_PULSE_OFFSET >= 0, "OFFSET must be non-negative");
-
+static_assert(TARGET_PULSE_OFFSET >= 0 && TARGET_PULSE_OFFSET < PULSES_PER_PANEL, "OFFSET must be in range [0-PULSES_PER_PANEL]");
+static_assert(DEFAULT_PANEL_PULSE_OFFSET >= 0 && DEFAULT_PANEL_PULSE_OFFSET < PULSES_PER_PANEL, "OFFSET must be in range [0-PULSES_PER_PANEL]");
 #define DETECTED_STATE LOW  // Define the detected state for the optical sensor
 
 // Servo configuration
@@ -138,31 +150,33 @@ void emergencyStop(String message) {
   Serial.println("EMERGENCY STOP: " + message);
 }
 
-int getCurrentPulses() {
-  int pulses = encoderValue * ENCODER_DIRECTION_SIGN;
-  pulses = pulses % (PANELS_COUNT * PULSES_PER_PANEL);
-  return pulses;
-}
-
 int getCurrentPanel() {
   return getCurrentPulses() / PULSES_PER_PANEL;
 }
 
+int getCurrentPulses() {
+  return (encoderValue * ENCODER_DIRECTION_SIGN) % PULSES_COUNT; //TODO LOW n'est pas censé avoir besoin de modulo si l'encodeur ne génère pas de steps en trop depuis le denier optique
+}
+
 void setCurrentPulses(int pulses) {
-  pulses = pulses % (PANELS_COUNT * PULSES_PER_PANEL);
-  encoder.write(pulses * ENCODER_DIRECTION_SIGN);
+  encoder.write((pulses % PULSES_COUNT) * ENCODER_DIRECTION_SIGN);
+}
+
+int getTargetPanel() {
+  return targetPulses / PULSES_PER_PANEL;
 }
 
 void setTargetPanel(int panel) {
   targetPulses = (panel * PULSES_PER_PANEL) + TARGET_PULSE_OFFSET;
 }
 
-int getTargetPulses() {
-  return targetPulses;
+void setTargetPulses(int pulses) {
+  assertThis(pulses < PULSES_COUNT, "pulses " + String(pulses) + " > " + PULSES_COUNT); //TODO à voir si la création du string n'est pas appelée (appeler ici une fonction qui retourne string et print un truc dans serial)
+  targetPulses = pulses;
 }
 
-int getTargetPanel() {
-  return targetPulses / PULSES_PER_PANEL;
+int getTargetPulses() {
+  return targetPulses;
 }
 
 String buildDebugJson(String message) {
@@ -245,7 +259,7 @@ void handleAdvancePulses() {
   if (server.hasArg("count")) {
     int pulseCount = server.arg("count").toInt();
     int currentPulses = getCurrentPulses();
-    targetPulses = (currentPulses + pulseCount) % (PANELS_COUNT * PULSES_PER_PANEL);  // TODO faire les modulos dans les setters (y compris setTargetPulses ce qui serait sa raison d'être)
+    targetPulses = (currentPulses + pulseCount) % PULSES_COUNT;  // TODO faire les modulos dans les setters (y compris setTargetPulses ce qui serait sa raison d'être)
     setCurrentState(MOVING_TO_TARGET);                                                // Set motor mode to go to target
     server.send(200, "text/plain", buildDebugJson("Advancing " + String(pulseCount) + " pulses to " + String(targetPulses)));
   } else {
@@ -270,8 +284,7 @@ void handleStop() {
 
 int getRemainingPulses() {
   int currentPulses = getCurrentPulses();
-  int totalPulses = PANELS_COUNT * PULSES_PER_PANEL;
-  int distance = (targetPulses - currentPulses + totalPulses) % totalPulses;  // Calcule la distance en avance (horaire)
+  int distance = (targetPulses - currentPulses + PULSES_COUNT) % PULSES_COUNT;  // Calcule la distance en avance (horaire)
   return distance;
 }
 
@@ -327,7 +340,6 @@ void processStateActions() {
   switch (currentState) {
     case STOPPED:
       setMotorSpeed(0);
-      // setTargetPulses(getCurrentPulses()); //TODO Nécessaire pour pas que ça reparte après calibration ?
       break;
     case MOVING_TO_TARGET: {
       float speed = calculateSpeedMovingToTarget();
@@ -345,12 +357,12 @@ void readSensors() {
   sensorState = digitalRead(OPTICAL_SENSOR_PIN);
   isOpticalEdgeDetected = (DETECTED_STATE == LOW && sensorState == HIGH && lastSensorState == LOW) ||
                           (DETECTED_STATE == HIGH && sensorState == LOW && lastSensorState == HIGH);
-  lastSensorState = sensorState;  // TODO rendre inaccessible en dehors ?
+  lastSensorState = sensorState; 
 
   // Read encoder value, reset if edge was detected
   if (isOpticalEdgeDetected) {
     serialPrintThrottled("OPTICALSTATE", "Optical edge detected");
-    setCurrentPulses(DEFAULT_PANEL * PULSES_PER_PANEL + DEFAULT_PANEL_PULSE_OFFSET);
+    setCurrentPulses(DEFAULT_PULSE);
   }
   encoderValue = encoder.read();
 }
