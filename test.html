@@ -226,7 +226,7 @@
         }
 
         function getCurrentPanel() {
-            apiRequest('/getCurrentPanel').then(data => {
+            apiRequest('/panel').then(data => {
                 let panelIndex = parseInt(data);
                 updateCitySelect(panelIndex);
             });
@@ -273,7 +273,7 @@
         }
 
         function getDebug() {
-            apiRequest('/getDebug');
+            apiRequest('/debug');
         }
     </script>
 </body>
