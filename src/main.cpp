@@ -4,22 +4,6 @@
 #include <Servo.h>
 #include <map>
 
-// Prototypes declaration
-int getCurrentPulses();
-int getCurrentPanel();
-void setCurrentPulses(int pulses);
-void setCurrentPanel(int panel);
-int getTargetPulses();
-String buildDebugJson(String message);
-void sendHeaders();
-float calculateSpeedMovingToTarget();
-int getRemainingPulses();
-void setMotorSpeed(float normalizedSpeed);
-void setTargetPanel(int panel);
-void handleAdvancePulses();
-int getTargetPanel();
-void emergencyStop(String message);
-
 template <typename T>
 void assertThis(bool condition, T&& message) {
   if (!condition) {
@@ -66,6 +50,23 @@ enum AppState {
 // - lancer moteur jusqu'à l'optique et récupérer la valeur de l'encodeur à ce moment
 // - calculer la pulse courante (attention au sens) et les constantes DEFAULT...
 // - en tenant compte de l'offset et en remettant l'encodeur à 0 on obtient le panel courant et on peut vérifier si c'est OK
+
+// Prototypes declaration
+int getCurrentPulses();
+int getCurrentPanel();
+void setCurrentPulses(int pulses);
+void setCurrentPanel(int panel);
+int getTargetPulses();
+String buildDebugJson(String message);
+void sendHeaders();
+float calculateSpeedMovingToTarget();
+int getRemainingPulses();
+void setMotorSpeed(float normalizedSpeed);
+void setTargetPanel(int panel);
+void handleAdvancePulses();
+int getTargetPanel();
+void emergencyStop(String message);
+String stateToString(AppState state);
 
 #define DEBUG_ENABLED 1
 
@@ -157,7 +158,7 @@ void setTargetPanel(int panel) {
 String buildDebugJson(String message) {
   String debugJson = "{";
   debugJson += "\"msg\":\"" + message + "\"" +
-               ",\"state\":" + String(currentState) +
+               ",\"state\":" + stateToString(currentState) +
                ",\"currentPanel\":" + String(getCurrentPanel()) +
                ",\"currentPulses\":" + String(getCurrentPulses()) +
                ",\"targetPanel\":" + String(getTargetPanel()) +
@@ -183,8 +184,23 @@ void serialPrintThrottled(String key, String message) {
 }
 #endif
 
+String stateToString(AppState state) {
+  switch (state) {
+    case STOPPED:
+      return "STOPPED";
+    case AUTO_CALIBRATING:
+      return "AUTO_CALIBRATING";
+    case MOVING_TO_TARGET:
+      return "MOVING_TO_TARGET";
+    case CALIBRATING:
+      return "CALIBRATING";
+    default:
+      return "UNKNOWN";
+  }
+}
+
 void setCurrentState(AppState newState) {
-  serialPrintThrottled("STATE", "state:" + String(currentState) + " newState:" + String(newState));
+  serialPrintThrottled("STATE", "state:" + stateToString(currentState) + " newState:" + stateToString(newState));
   currentState = newState;
 }
 
