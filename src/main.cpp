@@ -40,7 +40,7 @@ enum AppState {
 //   - fentes pour voir le trou ?
 //   - ligne visuelle pour guider sur la roue (OUI FACILE)
 //- Aligner fente avec dent car ça coince mieux sur cette position
-//- Permettre de découpler les roues ? dur 
+//- Permettre de découpler les roues ? dur
 //  - Roue libre à insérer une fois que tout est en place pour permettre de libérer le mécanisme en manuel) ?
 //- Trous de fixation corrects ? l'un était trop étroit
 //- Trou axe roue optique trop petit il semble
@@ -124,25 +124,12 @@ void emergencyStop(String message) {
   Serial.println("EMERGENCY STOP: " + message);
 }
 
-int getCurrentPanel() {
-  return getCurrentPulses() / PULSES_PER_PANEL;
-}
-
 int getCurrentPulses() {
   return (encoderValue * ENCODER_DIRECTION_SIGN) % PULSES_COUNT;  // TODO LOW n'est pas censé avoir besoin de modulo si l'encodeur ne génère pas de steps en trop depuis le denier optique
 }
 
 void setCurrentPulses(int pulses) {
   encoder.write((pulses % PULSES_COUNT) * ENCODER_DIRECTION_SIGN);
-}
-
-int getTargetPanel() {
-  return targetPulses / PULSES_PER_PANEL;
-}
-
-void setTargetPanel(int panel) {
-  assertThis(panel < PANELS_COUNT, "panel " + String(panel) + " > " + PANELS_COUNT);
-  setTargetPulses((panel * PULSES_PER_PANEL) + TARGET_PULSE_OFFSET);
 }
 
 void setTargetPulses(int pulses) {
@@ -152,6 +139,19 @@ void setTargetPulses(int pulses) {
 
 int getTargetPulses() {
   return targetPulses;
+}
+
+int getCurrentPanel() {
+  return getCurrentPulses() / PULSES_PER_PANEL;
+}
+
+int getTargetPanel() {
+  return targetPulses / PULSES_PER_PANEL;
+}
+
+void setTargetPanel(int panel) {
+  assertThis(panel < PANELS_COUNT, "panel " + String(panel) + " > " + PANELS_COUNT);
+  setTargetPulses((panel * PULSES_PER_PANEL) + TARGET_PULSE_OFFSET);
 }
 
 String buildDebugJson(String message) {
@@ -210,7 +210,7 @@ void handleMoveToPanel() {
     int panel = server.arg("panel").toInt();
     panel %= PANELS_COUNT;  // Ensure target is within bounds
     setTargetPanel(panel);
-    setCurrentState(MOVING_TO_TARGET); 
+    setCurrentState(MOVING_TO_TARGET);
     server.send(200, "text/plain", buildDebugJson("Moving to panel " + String(getTargetPanel())));
   } else {
     server.send(400, "text/plain", "Missing 'panel' argument");
@@ -222,8 +222,8 @@ void handleAdvancePanels() {
   if (server.hasArg("count")) {
     int advanceCount = server.arg("count").toInt();
     int currentPanel = getCurrentPanel();
-    setTargetPanel((currentPanel + advanceCount) % PANELS_COUNT);  
-    setCurrentState(MOVING_TO_TARGET);                             
+    setTargetPanel((currentPanel + advanceCount) % PANELS_COUNT);
+    setCurrentState(MOVING_TO_TARGET);
     server.send(200, "text/plain", buildDebugJson("From " + String(currentPanel) + ", Advancing " + String(advanceCount) + " panels to " + String(getTargetPanel())));
   } else {
     server.send(400, "text/plain", "Missing 'count' argument");
@@ -235,8 +235,8 @@ void handleAdvancePulses() {
   if (server.hasArg("count")) {
     int pulseCount = server.arg("count").toInt();
     int currentPulses = getCurrentPulses();
-    setTargetPulses((currentPulses + pulseCount) % PULSES_COUNT);  
-    setCurrentState(MOVING_TO_TARGET);                             
+    setTargetPulses((currentPulses + pulseCount) % PULSES_COUNT);
+    setCurrentState(MOVING_TO_TARGET);
     server.send(200, "text/plain", buildDebugJson("Advancing " + String(pulseCount) + " pulses to " + String(targetPulses)));
   } else {
     server.send(400, "text/plain", "Missing 'count' argument");
@@ -384,7 +384,7 @@ void setup() {
   server.on("/moveToPanel", HTTP_POST, handleMoveToPanel);
   server.on("/advancePanels", HTTP_POST, handleAdvancePanels);
   server.on("/advancePulses", HTTP_POST, handleAdvancePulses);
-  server.on("/calibrate", HTTP_GET, handleCalibrate); //TODO POST pour les actions memes simpes ?
+  server.on("/calibrate", HTTP_GET, handleCalibrate);  // TODO POST pour les actions memes simpes ?
   server.on("/stop", HTTP_GET, handleStop);
   server.begin();
   Serial.println("HTTP server started");
@@ -399,7 +399,7 @@ void setup() {
 }
 
 void loop() {
-  connectToWiFi(); // Keep it alive
+  connectToWiFi();  // Keep it alive
   readSensors();
   evaluateStateTransitions();
   processStateActions();
