@@ -347,6 +347,7 @@ void processStateActions() {
     case AUTO_CALIBRATING: {
       float speed = calculateSpeedCalibration();
       setMotorSpeed(speed);
+      break;
     }
     case MOVING_TO_TARGET: {
       float speed = calculateSpeedMovingToTarget();
