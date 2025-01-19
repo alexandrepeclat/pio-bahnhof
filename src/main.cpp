@@ -34,7 +34,10 @@ enum AppState {
 //- Prévoir plus de place pour pins capteur optique
 
 // TODO SOFTWARE :
-// TODO Sécurités si valeur hors norme, stoppe servo
+// TODO réorganiser la détection d'erreurs
+// - on a emergencyStop et assertThis un peu interchangeables
+// - on a des checks sur des getters ou à des moments dans la logique du code et dans les fonctions dédiées...
+// - on a souvent besoin des valeurs de la boucle précédente, donc faudrait les mettre à jour dans une fonction dédiée en fin de boucle
 // TODO ? stocker la valeur de l'encodeur dans variable et la remettre à zéro avec l'optique, mais laisser la valeur de l'encodeur originale.
 // - ou plutôt afficher la valeur de l'encodeur brute lors du passage de l'optique
 // - et faire une variable previousPulses pour voir si une boucle ne loupe pas un step
@@ -43,7 +46,6 @@ enum AppState {
 // TODO état ERROR ? en même temps le flag reste nécessaire car il garantit qu'on peut pas setter à nouveau autre chose via transition ou autre... mais la boucle continue de tourner et calculer des trucs pour rien...
 // TODO Vérifier les valeurs passées depuis l'api un peu mieux en terme de limites et type
 // TODO go to rising/falling edges via API ?
-// TODO détecter si blocage (en fonction de l'encodeur et du temps écoulé) et emergencystop
 // TODO garder les N derniers messages (erreur ou warning...)
 // TODO API avec commandes plus poussées sur même endpoint ? par ex pour aider à définir les offsets
 // - positionner par incréments de steps le panneau 0 à son tout début
@@ -83,6 +85,7 @@ const int PULSES_COUNT = PANELS_COUNT * PULSES_PER_PANEL;  // Nombre total d'imp
 const int DEFAULT_PANEL = 40;                              // Panel at optical sensor position
 const int DEFAULT_PANEL_PULSE_OFFSET = 1;                  // Optical sensor is detected at nth pulse of the default panel //TODO Directement calculer un DEFAULT_PULSE via les deux variables et faire en sorte que ce soit dans les limites [0-PULSES_TOTAL]
 const int DEFAULT_PULSE = (DEFAULT_PANEL * PULSES_PER_PANEL) + DEFAULT_PANEL_PULSE_OFFSET;
+static_assert(DEFAULT_PULSE >= 0 && DEFAULT_PULSE < PULSES_COUNT, "DEFAULT_PULSE must be in range [0-PULSES_COUNT]");
 const int ENCODER_DIRECTION_SIGN = -1;
 const int TARGET_PULSE_OFFSET = 1;  // When going to target, go to the nth pulse of the target panel //TODO chuis tjrs pas sur que ce soit utile... au moment du passage optique, suffit de lui faire croire qu'il est en avant ou en arrière et ça devrait faire le job pareil
 static_assert(TARGET_PULSE_OFFSET >= 0 && TARGET_PULSE_OFFSET < PULSES_PER_PANEL, "OFFSET must be in range [0-PULSES_PER_PANEL]");
@@ -100,6 +103,7 @@ ESP8266WebServer server(80);
 Encoder encoder(ENCODER_PIN_A, ENCODER_PIN_B);
 int targetPanel = 0;                 // Panneau cible //TODO utiliser un targetPulses et virer quasi tous les appels get/setPanel sauf depuis l'api ou les debug
 int encoderValue = 0;                // Variable to store the encoder value
+int lastEncoderValue = 0;            // Last encoder value to detect blockage
 bool isOpticalEdgeDetected = false;  // Variable to store if the optical edge is detected during the current loop
 int sensorState = LOW;
 int lastSensorState = HIGH;  // Initialize to HIGH (not detected)
@@ -108,6 +112,8 @@ String errorMessage = "";    // Emergency stop message
 AppState currentState = STOPPED;
 int targetPulses = 0;  // New targetPulses property
 bool calibrated = false;
+const unsigned long BLOCKAGE_TIMEOUT = 100;  // Timeout in milliseconds to detect blockage
+unsigned long lastEncoderCheckTime = 0;      // Time of the last encoder check
 
 #ifdef DEBUG_ENABLED
 std::map<String, String> lastDebugMessages;  // Map to store the last debug messages
@@ -125,15 +131,16 @@ void emergencyStop(String message) {
 }
 
 int getCurrentPulses() {
-  return (encoderValue * ENCODER_DIRECTION_SIGN) % PULSES_COUNT;  // TODO LOW n'est pas censé avoir besoin de modulo si l'encodeur ne génère pas de steps en trop depuis le denier optique
+  return encoderValue * ENCODER_DIRECTION_SIGN;
 }
 
 void setCurrentPulses(int pulses) {
+  assertThis(pulses >= 0 && pulses < PULSES_COUNT, "pulses " + String(pulses) + " out of bounds");
   encoder.write((pulses % PULSES_COUNT) * ENCODER_DIRECTION_SIGN);
 }
 
 void setTargetPulses(int pulses) {
-  assertThis(pulses < PULSES_COUNT, "pulses " + String(pulses) + " > " + PULSES_COUNT);  // TODO à voir si la création du string n'est pas appelée (appeler ici une fonction qui retourne string et print un truc dans serial)
+  assertThis(pulses >= 0 && pulses < PULSES_COUNT, "pulses " + String(pulses) + " out of bounds");  // TODO à voir si la création du string n'est pas appelée (appeler ici une fonction qui retourne string et print un truc dans serial)
   targetPulses = pulses;
 }
 
@@ -368,6 +375,7 @@ void readSensors() {
 
   // Read encoder value, reset if edge was detected
   if (isOpticalEdgeDetected) {
+    assertThis(!calibrated || getCurrentPulses() == DEFAULT_PULSE, "Optical edge detected but not at default pulse");
     calibrated = true;
     serialPrintThrottled("OPTICALSTATE", "Optical edge detected");
     setCurrentPulses(DEFAULT_PULSE);
@@ -387,6 +395,32 @@ void connectToWiFi() {
     }
     Serial.println("Connected to WiFi " + String(ssid) + "!");
     Serial.println("IP Address: " + WiFi.localIP().toString() + " RSSI: " + WiFi.RSSI());
+  }
+}
+
+void detectBlockage() {
+  // TODO voir si y a pas un risque que ça détecte un blocage car le moteur est entrain de démarrer et que l'encodeur n'a pas encore bougé (setter lastEncoderCheckTime dans setMotorSpeed ?)
+  if (millis() - lastEncoderCheckTime > BLOCKAGE_TIMEOUT) {
+    if (encoderValue == lastEncoderValue && servo.read() > STOP_SPEED) {
+      emergencyStop("Blockage detected: Encoder value did not change for " + String(BLOCKAGE_TIMEOUT) + " ms");
+    }
+    lastEncoderCheckTime = millis();
+  }
+
+  // Detect missing steps
+  int deltaEncoderValue = (encoderValue - lastEncoderValue + PULSES_COUNT) % PULSES_COUNT;
+  assertThis(deltaEncoderValue == 0 || deltaEncoderValue == 1, "Missing steps detected: encoderValue " + String(encoderValue) + " is not equal to lastEncoderValue " + String(lastEncoderValue) + " or lastEncoderValue + 1");
+
+  // Update last encoder value
+  lastEncoderValue = encoderValue;
+}
+
+void detectMotorIncorrectSpeed() {
+  int speed = servo.read();
+  if (speed < 90) {
+    emergencyStop("Motor speed should not be lower than 90");
+  } else if (speed > 180) {
+    emergencyStop("Motor speed should not be greater than 180");
   }
 }
 
@@ -419,6 +453,7 @@ void loop() {
   readSensors();
   evaluateStateTransitions();
   processStateActions();
+  detectBlockage();  // Check for blockage
 #ifdef DEBUG_ENABLED
   serialPrintThrottled("ALL", buildDebugJson(""));
 #endif
@@ -435,9 +470,6 @@ void setMotorSpeed(float normalizedSpeed) {
   // Constrain normalized speed and map it to servo speed values
   normalizedSpeed = constrain(normalizedSpeed, 0.f, 1.f);
   int speed = map(normalizedSpeed * 100, 0, 100, STOP_SPEED, RUN_SPEED);
-  if (speed < 90) {
-    emergencyStop("Backwards speed is not allowed");
-    return;
-  }
+  assertThis(speed >= STOP_SPEED && speed <= RUN_SPEED, "Speed " + String(speed) + " out of bounds");
   servo.write(speed);
 }
