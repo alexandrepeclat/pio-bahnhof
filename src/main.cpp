@@ -99,7 +99,6 @@ static_assert(RUN_SPEED > 90, "RUN_SPEED must be greater than 90 or everything w
 ESP8266WebServer server(80);
 Encoder encoder(ENCODER_PIN_A, ENCODER_PIN_B);
 int targetPanel = 0;                 // Panneau cible //TODO utiliser un targetPulses et virer quasi tous les appels get/setPanel sauf depuis l'api ou les debug
-bool motorEnabled = false;           // Boolean to enable/disable motor, starts disabled
 int encoderValue = 0;                // Variable to store the encoder value
 bool isOpticalEdgeDetected = false;  // Variable to store if the optical edge is detected during the current loop
 int sensorState = LOW;
