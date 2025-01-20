@@ -157,6 +157,7 @@
         <h2>Actions</h2>
         <button onclick="calibrate()">Calibrate</button>
         <button onclick="stopServo()">Stop Servo</button>
+        <button onclick="reset()">Reset</button>
         <button onclick="getDebug()">Get debug</button>
         <button onclick="getCurrentPanel()">Get Current Panel</button>
 
@@ -270,6 +271,10 @@
 
         function stopServo() {
             apiRequest('/stop');
+        }
+
+        function reset() {
+            apiRequest('/reset');
         }
 
         function getDebug() {

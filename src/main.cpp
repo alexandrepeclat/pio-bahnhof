@@ -4,20 +4,6 @@
 #include <Servo.h>
 #include <map>
 
-template <typename T>
-void assertThis(bool condition, T&& message) {
-  if (!condition) {
-    emergencyStop(std::forward<T>(message));
-  }
-}
-
-enum AppState {
-  STOPPED,
-  AUTO_CALIBRATING,
-  MOVING_TO_TARGET,
-  CALIBRATING
-};
-
 // TODO MECANIQUE :
 //- Faciliter l'ajustement de la roue optique
 //   - fixation par le haut ?
@@ -52,6 +38,14 @@ enum AppState {
 // - lancer moteur jusqu'à l'optique et récupérer la valeur de l'encodeur à ce moment
 // - calculer la pulse courante (attention au sens) et les constantes DEFAULT...
 // - en tenant compte de l'offset et en remettant l'encodeur à 0 on obtient le panel courant et on peut vérifier si c'est OK
+// TODO API pour donner la liste des villes ? Dépend du matos après-tout par contre on va pas fournir les traductions pour la reconnaissance vocale ?
+
+enum AppState {
+  STOPPED,
+  AUTO_CALIBRATING,
+  MOVING_TO_TARGET,
+  CALIBRATING
+};
 
 // Prototypes declaration
 int getCurrentPulses();
@@ -69,6 +63,13 @@ void handleAdvancePulses();
 int getTargetPanel();
 void emergencyStop(String message);
 String stateToString(AppState state);
+
+template <typename T>
+void assertThis(bool condition, T&& message) {
+  if (!condition) {
+    emergencyStop(std::forward<T>(message));
+  }
+}
 
 #define DEBUG_ENABLED 1
 
@@ -99,11 +100,12 @@ const int RUN_SPEED = 140;  // Vitesse du servo pour avancer (91-180) 140 c'est 
 static_assert(RUN_SPEED > 90, "RUN_SPEED must be greater than 90 or everything will break !");
 
 // Globals
+int loopMillis = 0;
 ESP8266WebServer server(80);
 Encoder encoder(ENCODER_PIN_A, ENCODER_PIN_B);
 int targetPanel = 0;                 // Panneau cible //TODO utiliser un targetPulses et virer quasi tous les appels get/setPanel sauf depuis l'api ou les debug
-int encoderValue = 0;                // Variable to store the encoder value
-int lastEncoderValue = 0;            // Last encoder value to detect blockage
+int currentPulses = 0;               // Variable to store the encoder value
+int lastCurrentPulses = 0;           // Last encoder value to detect blockage
 bool isOpticalEdgeDetected = false;  // Variable to store if the optical edge is detected during the current loop
 int sensorState = LOW;
 int lastSensorState = HIGH;  // Initialize to HIGH (not detected)
@@ -124,19 +126,14 @@ const char* ssid = "ap8F2EOjLm";
 const char* password = "gsecumonwifiii123";
 
 void emergencyStop(String message) {
-  errorFlag = true;
+  // errorFlag = true;
   errorMessage = message;
   servo.write(STOP_SPEED);  // Stop the motor immediately
-  Serial.println("EMERGENCY STOP: " + message);
+  Serial.println(String(loopMillis) + " EMERGENCY STOP: " + message);
 }
 
 int getCurrentPulses() {
-  return encoderValue * ENCODER_DIRECTION_SIGN;
-}
-
-void setCurrentPulses(int pulses) {
-  assertThis(pulses >= 0 && pulses < PULSES_COUNT, "pulses " + String(pulses) + " out of bounds");
-  encoder.write((pulses % PULSES_COUNT) * ENCODER_DIRECTION_SIGN);
+  return currentPulses;
 }
 
 void setTargetPulses(int pulses) {
@@ -169,12 +166,12 @@ String buildDebugJson(String message) {
                ",\"currentPulses\":" + String(getCurrentPulses()) +
                ",\"targetPanel\":" + String(getTargetPanel()) +
                ",\"targetPulses\":" + String(getTargetPulses()) +
-               ",\"rawPulses\":" + String(encoderValue) +
                ",\"optical\":" + String(sensorState) +
                ",\"edge\":" + String(isOpticalEdgeDetected) +
                ",\"calibrated\":" + String(calibrated) +
                ",\"dist\":" + String(getRemainingPulses()) +
                ",\"speed\":" + String(calculateSpeedMovingToTarget()) +
+               ",\"servo\":" + String(servo.read()) +
                ",\"errorFlag\":" + String(errorFlag) +
                ",\"errorMessage\":\"" + errorMessage + "\"";
   debugJson += "}";
@@ -184,7 +181,7 @@ String buildDebugJson(String message) {
 #ifdef DEBUG_ENABLED
 void serialPrintThrottled(String key, String message) {
   if (lastDebugMessages[key] != message) {
-    Serial.println(message);
+    Serial.println(String(loopMillis) + " " + message);
     lastDebugMessages[key] = message;
   }
 }
@@ -278,6 +275,16 @@ void handleStop() {
   int currentPanel = getCurrentPanel();
   setTargetPanel(currentPanel);
   server.send(200, "text/plain", buildDebugJson("Stopped. Current panel set to " + String(currentPanel)));
+}
+
+void handleReset() {
+  sendHeaders();
+  setMotorSpeed(0);  // Stop the motor
+  calibrated = false;
+  errorFlag = false;
+  errorMessage = "";
+  setCurrentState(STOPPED);
+  server.send(200, "text/plain", buildDebugJson("Reset"));
 }
 
 int getRemainingPulses() {
@@ -374,13 +381,19 @@ void readSensors() {
   lastSensorState = sensorState;
 
   // Read encoder value, reset if edge was detected
+  currentPulses = (encoder.read() * ENCODER_DIRECTION_SIGN) % PULSES_COUNT;
   if (isOpticalEdgeDetected) {
-    assertThis(!calibrated || getCurrentPulses() == DEFAULT_PULSE, "Optical edge detected but not at default pulse");
+    assertThis(!calibrated || getCurrentPulses() == DEFAULT_PULSE, "Optical edge detected but not at default pulse. currentPulses = " + String(getCurrentPulses()));  // TODO chais pas pourquoi mais si on lit pas cette valeur dans le debug, ça émet l'erreur alors qu'après vérification elle est pas censée arriver. On pourrait aussi asserter que si currentPulse == DEFAULT_PULSE on doit avoir ou non l'edge à chaque boucle
     calibrated = true;
     serialPrintThrottled("OPTICALSTATE", "Optical edge detected");
-    setCurrentPulses(DEFAULT_PULSE);
+    encoder.write(DEFAULT_PULSE * ENCODER_DIRECTION_SIGN);
+    currentPulses = DEFAULT_PULSE;
+    lastCurrentPulses = DEFAULT_PULSE;  // TODO au lieu de setter ici on pourrait laisser et faire modulo dans la fonction de détection.
   }
-  encoderValue = encoder.read();
+
+  // TODO c'est faux, mais dans l'idée, faudrait détecter les deux cas via un code assez compact
+  //  assertThis(!calibrated || isOpticalEdgeDetected && getCurrentPulses() == DEFAULT_PULSE, "Optical edge detected, but not at default pulse. currentPulses = " + String(getCurrentPulses()));
+  //  assertThis(!calibrated || !isOpticalEdgeDetected && getCurrentPulses() != DEFAULT_PULSE, "Optical edge not detected at default pulse. currentPulses = " + String(getCurrentPulses()));
 }
 
 void connectToWiFi() {
@@ -398,21 +411,27 @@ void connectToWiFi() {
   }
 }
 
+int lastEncoderBlockagePulses = 0;
+
 void detectBlockage() {
   // TODO voir si y a pas un risque que ça détecte un blocage car le moteur est entrain de démarrer et que l'encodeur n'a pas encore bougé (setter lastEncoderCheckTime dans setMotorSpeed ?)
-  if (millis() - lastEncoderCheckTime > BLOCKAGE_TIMEOUT) {
-    if (encoderValue == lastEncoderValue && servo.read() > STOP_SPEED) {
-      emergencyStop("Blockage detected: Encoder value did not change for " + String(BLOCKAGE_TIMEOUT) + " ms");
-    }
-    lastEncoderCheckTime = millis();
-  }
+  // TODO détection blocage fonctionne pas, pas sûr que de mettre à jour la valeur ici tout le temps soit correct (en fait ça devrait détecter un blocage hyper souvent)
+  // if (millis() - lastEncoderCheckTime > BLOCKAGE_TIMEOUT) {
+  //   if (currentPulses == lastEncoderBlockagePulses && servo.read() > STOP_SPEED) {
+  //     emergencyStop("Blockage detected: Encoder value did not change for " + String(BLOCKAGE_TIMEOUT) + " ms");
+  //   }
+  //   lastEncoderCheckTime = millis();
+  //   lastEncoderBlockagePulses = currentPulses;
+  // }
+  // if (servo.read() == STOP_SPEED) {
+  //   lastEncoderCheckTime = millis();
+  //   lastEncoderBlockagePulses = currentPulses;
+  // }
 
   // Detect missing steps
-  int deltaEncoderValue = (encoderValue - lastEncoderValue + PULSES_COUNT) % PULSES_COUNT;
-  assertThis(deltaEncoderValue == 0 || deltaEncoderValue == 1, "Missing steps detected: encoderValue " + String(encoderValue) + " is not equal to lastEncoderValue " + String(lastEncoderValue) + " or lastEncoderValue + 1");
-
-  // Update last encoder value
-  lastEncoderValue = encoderValue;
+  int deltaPulses = (currentPulses - lastCurrentPulses + PULSES_COUNT) % PULSES_COUNT;
+  assertThis(deltaPulses == 0 || deltaPulses == 1, "Missing steps detected: currentPulses " + String(currentPulses) + " is not equal to lastCurrentPulses " + String(lastCurrentPulses) + " or lastEncoderValue + 1");
+  lastCurrentPulses = currentPulses;
 }
 
 void detectMotorIncorrectSpeed() {
@@ -436,6 +455,7 @@ void setup() {
   server.on("/advancePulses", HTTP_POST, handleAdvancePulses);
   server.on("/calibrate", HTTP_GET, handleCalibrate);  // TODO POST pour les actions memes simpes ?
   server.on("/stop", HTTP_GET, handleStop);
+  server.on("/reset", HTTP_GET, handleReset);
   server.begin();
   Serial.println("HTTP server started");
 
@@ -449,6 +469,7 @@ void setup() {
 }
 
 void loop() {
+  loopMillis = millis();
   connectToWiFi();  // Keep it alive
   readSensors();
   evaluateStateTransitions();
