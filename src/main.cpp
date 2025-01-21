@@ -41,6 +41,7 @@
 // TODO API pour donner la liste des villes ? Dépend du matos après-tout par contre on va pas fournir les traductions pour la reconnaissance vocale ?
 
 enum AppState {
+  EMERGENCY_STOPPED,
   STOPPED,
   AUTO_CALIBRATING,
   MOVING_TO_TARGET,
@@ -63,6 +64,7 @@ void handleAdvancePulses();
 int getTargetPanel();
 void emergencyStop(String message);
 String stateToString(AppState state);
+void setCurrentState(AppState newState);
 
 template <typename T>
 void assertThis(bool condition, T&& message) {
@@ -100,7 +102,7 @@ const int RUN_SPEED = 140;  // Vitesse du servo pour avancer (91-180) 140 c'est 
 static_assert(RUN_SPEED > 90, "RUN_SPEED must be greater than 90 or everything will break !");
 
 // Globals
-int loopMillis = 0;
+unsigned long loopMillis = 0;
 ESP8266WebServer server(80);
 Encoder encoder(ENCODER_PIN_A, ENCODER_PIN_B);
 int targetPanel = 0;                 // Panneau cible //TODO utiliser un targetPulses et virer quasi tous les appels get/setPanel sauf depuis l'api ou les debug
@@ -114,8 +116,7 @@ String errorMessage = "";    // Emergency stop message
 AppState currentState = STOPPED;
 int targetPulses = 0;  // New targetPulses property
 bool calibrated = false;
-const unsigned long BLOCKAGE_TIMEOUT = 100;  // Timeout in milliseconds to detect blockage
-unsigned long lastEncoderCheckTime = 0;      // Time of the last encoder check
+const unsigned long BLOCKAGE_TIMEOUT = 500;  // Timeout in milliseconds to detect blockage
 
 #ifdef DEBUG_ENABLED
 std::map<String, String> lastDebugMessages;  // Map to store the last debug messages
@@ -126,9 +127,10 @@ const char* ssid = "ap8F2EOjLm";
 const char* password = "gsecumonwifiii123";
 
 void emergencyStop(String message) {
-  // errorFlag = true;
+  servo.write(STOP_SPEED);  // First things first, stop the motor
+  setCurrentState(EMERGENCY_STOPPED);
+  // errorFlag = true; //TODO à voir si redondant ou safe
   errorMessage = message;
-  servo.write(STOP_SPEED);  // Stop the motor immediately
   Serial.println(String(loopMillis) + " EMERGENCY STOP: " + message);
 }
 
@@ -189,6 +191,8 @@ void serialPrintThrottled(String key, String message) {
 
 String stateToString(AppState state) {
   switch (state) {
+    case EMERGENCY_STOPPED:
+      return "EMERGENCY_STOPPED";
     case STOPPED:
       return "STOPPED";
     case AUTO_CALIBRATING:
@@ -326,6 +330,7 @@ float calculateSpeedMovingToTarget() {
  */
 void evaluateStateTransitions() {
   switch (currentState) {
+    case EMERGENCY_STOPPED:
     case STOPPED:
       // Nothing to do, wait for command
       break;
@@ -354,6 +359,7 @@ void evaluateStateTransitions() {
 
 void processStateActions() {
   switch (currentState) {
+    case EMERGENCY_STOPPED:
     case STOPPED:
       setMotorSpeed(0);
       break;
@@ -411,35 +417,46 @@ void connectToWiFi() {
   }
 }
 
-int lastEncoderBlockagePulses = 0;
+void checkForRunningErrors() {
+  // TODO ça fonctionne MAIS avec un délai de 500ms qui me semble très long et y aurait-il moyen d'utiliser la même variable ? problème vu qu'elle est mise à jour à chaque loop, quand le moteur tourne à la loop suivante si le délai est dépassé, ça détecte que ça n'a pas bougé. Voir si alternative possible : https://chatgpt.com/c/678e9109-34b8-8005-ac88-cb9013f09a07
+  int motorSpeed = servo.read();
 
-void detectBlockage() {
-  // TODO voir si y a pas un risque que ça détecte un blocage car le moteur est entrain de démarrer et que l'encodeur n'a pas encore bougé (setter lastEncoderCheckTime dans setMotorSpeed ?)
-  // TODO détection blocage fonctionne pas, pas sûr que de mettre à jour la valeur ici tout le temps soit correct (en fait ça devrait détecter un blocage hyper souvent)
-  // if (millis() - lastEncoderCheckTime > BLOCKAGE_TIMEOUT) {
-  //   if (currentPulses == lastEncoderBlockagePulses && servo.read() > STOP_SPEED) {
-  //     emergencyStop("Blockage detected: Encoder value did not change for " + String(BLOCKAGE_TIMEOUT) + " ms");
-  //   }
-  //   lastEncoderCheckTime = millis();
-  //   lastEncoderBlockagePulses = currentPulses;
-  // }
-  // if (servo.read() == STOP_SPEED) {
-  //   lastEncoderCheckTime = millis();
-  //   lastEncoderBlockagePulses = currentPulses;
-  // }
+  // Detect blockage
+  {
+    static unsigned long lastBlockageCheckTime = 0;  // Time of the last encoder check for blockage
+    static int lastBlockageCheckPulses = 0;
+
+    if (motorSpeed > STOP_SPEED && loopMillis - lastBlockageCheckTime > BLOCKAGE_TIMEOUT) {
+      if (currentPulses == lastBlockageCheckPulses) {
+        emergencyStop("Blockage detected: Encoder value did not change for " + String(BLOCKAGE_TIMEOUT) + " ms");
+      }
+      // When motor is running, update values only after each timed check
+      lastBlockageCheckTime = loopMillis;
+      lastBlockageCheckPulses = currentPulses;
+    } else if (motorSpeed == STOP_SPEED) {
+      // When motor is stopped, always update values so when it starts, we wait for a full timeout before 1st check (grace period)
+      lastBlockageCheckTime = loopMillis;
+      lastBlockageCheckPulses = currentPulses;
+    } else {
+      emergencyStop("Blockage detected: Motor running in wrong direction");
+    }
+  }
 
   // Detect missing steps
-  int deltaPulses = (currentPulses - lastCurrentPulses + PULSES_COUNT) % PULSES_COUNT;
-  assertThis(deltaPulses == 0 || deltaPulses == 1, "Missing steps detected: currentPulses " + String(currentPulses) + " is not equal to lastCurrentPulses " + String(lastCurrentPulses) + " or lastEncoderValue + 1");
-  lastCurrentPulses = currentPulses;
-}
+  {
+    static int lastStepsCheckPulses = 0;
+    int deltaPulses = (currentPulses - lastStepsCheckPulses + PULSES_COUNT) % PULSES_COUNT;
+    assertThis(deltaPulses <= 1, "Missing steps detected: currentPulses=" + String(currentPulses) + " lastStepsCheckPulses=" + String(lastStepsCheckPulses));  // TODO Détecter encodeur tourne dans le mauvais sens ?
+    lastStepsCheckPulses = currentPulses;
+  }
 
-void detectMotorIncorrectSpeed() {
-  int speed = servo.read();
-  if (speed < 90) {
-    emergencyStop("Motor speed should not be lower than 90");
-  } else if (speed > 180) {
-    emergencyStop("Motor speed should not be greater than 180");
+  // Detect motor speed out of bounds
+  {
+    if (motorSpeed < 90) {
+      emergencyStop("Motor speed should not be lower than 90");
+    } else if (motorSpeed > 180) {
+      emergencyStop("Motor speed should not be greater than 180");
+    }
   }
 }
 
@@ -461,7 +478,7 @@ void setup() {
 
   // Servo setup
   servo.attach(SERVO_PIN);
-  setMotorSpeed(0);  // Ensure the servo starts stopped using the centralized function
+  servo.write(STOP_SPEED);  // Ensure the servo starts stopped using the centralized function
 
   // Optical sensor setup
   pinMode(OPTICAL_SENSOR_PIN, INPUT);                 // Configure le capteur optique en entrée
@@ -474,7 +491,7 @@ void loop() {
   readSensors();
   evaluateStateTransitions();
   processStateActions();
-  detectBlockage();  // Check for blockage
+  checkForRunningErrors();  // Check for blockages anc co
 #ifdef DEBUG_ENABLED
   serialPrintThrottled("ALL", buildDebugJson(""));
 #endif
