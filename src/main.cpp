@@ -3,6 +3,7 @@
 #include <Encoder.h>
 #include <Servo.h>
 #include <map>
+#include <secrets.h>
 
 // TODO MECANIQUE :
 //- Faciliter l'ajustement de la roue optique
@@ -121,10 +122,6 @@ const unsigned long BLOCKAGE_TIMEOUT = 500;  // Timeout in milliseconds to detec
 #ifdef DEBUG_ENABLED
 std::map<String, String> lastDebugMessages;  // Map to store the last debug messages
 #endif
-
-// Setup Wi-Fi
-const char* ssid = "ap8F2EOjLm";
-const char* password = "gsecumonwifiii123";
 
 void emergencyStop(String message) {
   servo.write(STOP_SPEED);  // First things first, stop the motor
@@ -407,12 +404,12 @@ void connectToWiFi() {
   if (WiFi.status() != WL_CONNECTED) {
     setMotorSpeed(0);  // Stop the motor if we are offline
     WiFi.disconnect();
-    WiFi.begin(ssid, password);
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
     while (WiFi.status() != WL_CONNECTED) {
       delay(1000);
-      Serial.println("Connecting to WiFi " + String(ssid) + "...");
+      Serial.println("Connecting to WiFi " + WiFi.SSID() + "...");
     }
-    Serial.println("Connected to WiFi " + String(ssid) + "!");
+    Serial.println("Connected to WiFi " + WiFi.SSID() + "!");
     Serial.println("IP Address: " + WiFi.localIP().toString() + " RSSI: " + WiFi.RSSI());
   }
 }
