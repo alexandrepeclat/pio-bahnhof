@@ -6,6 +6,9 @@
 #include <secrets.h>
 
 // TODO MECANIQUE :
+//- Inverser capteur optique ? et mettre trou vis supplémentaire ailleurs (je dois faire le trou de toute manière)
+//- Roue optique plus fine
+//- Orientation encodeur (! câble et trous) + voir si trous sont corrects sur le cad
 //- Faciliter l'ajustement de la roue optique
 //   - fixation par le haut ?
 //   - fentes pour voir le trou ?
@@ -15,12 +18,19 @@
 //  - Roue libre à insérer une fois que tout est en place pour permettre de libérer le mécanisme en manuel) ?
 //- Trous de fixation corrects ? l'un était trop étroit
 //- Trou axe roue optique trop petit il semble
-//- Trous des vis encodeur pas assez profonds
-//- Voir comment fixer axe roue optique + rondelles
+//- Voir comment fixer AXE roue optique + rondelles
 //- Voir comment fixer roue encodeur + rondelles
+//  - Spacer imprimé entre roue et base encodeur ?
+//  - Trou de la roue pas obligé de passer au travers. le bas peut être plein et bloquer pour pas que la roue remonte le shaft
+//  - Rondelle entre roue et plaque métal ?
 //- Prévoir plus de place pour pins capteur optique
+//- V2 - Trous des vis encodeur pas assez profonds
 
 // TODO SOFTWARE :
+
+//TODO ON PEUT PAS VERIFIER L'OPTIQUE DANS UNE BOUCLE sinon on a toujours ce décalage entre le moment où on mesure et ce qu'il s'est passé depuis !!!!!!!!!!!!!
+//TODO ON DOIT tenir compte d'un certain offset pour savoir si on a atteint le target car quand la boucle stoppe le moteur, c'est déjà dépassé de quelques steps
+
 // TODO réorganiser la détection d'erreurs
 // - on a emergencyStop et assertThis un peu interchangeables
 // - on a des checks sur des getters ou à des moments dans la logique du code et dans les fonctions dédiées...
@@ -84,13 +94,13 @@ void assertThis(bool condition, T&& message) {
 
 // Constants
 const int PANELS_COUNT = 62;                               // Nombre total de panneaux
-const int PULSES_PER_PANEL = 2;                            // Ajuste pour 4 impulsions par panneau
+const int PULSES_PER_PANEL = 36;                            // Ajuste pour 4 impulsions par panneau
 const int PULSES_COUNT = PANELS_COUNT * PULSES_PER_PANEL;  // Nombre total d'impulsions
-const int DEFAULT_PANEL = 40;                              // Panel at optical sensor position
+const int DEFAULT_PANEL = 9;                              // Panel at optical sensor position
 const int DEFAULT_PANEL_PULSE_OFFSET = 1;                  // Optical sensor is detected at nth pulse of the default panel //TODO Directement calculer un DEFAULT_PULSE via les deux variables et faire en sorte que ce soit dans les limites [0-PULSES_TOTAL]
 const int DEFAULT_PULSE = (DEFAULT_PANEL * PULSES_PER_PANEL) + DEFAULT_PANEL_PULSE_OFFSET;
 static_assert(DEFAULT_PULSE >= 0 && DEFAULT_PULSE < PULSES_COUNT, "DEFAULT_PULSE must be in range [0-PULSES_COUNT]");
-const int ENCODER_DIRECTION_SIGN = -1;
+const int ENCODER_DIRECTION_SIGN = 1;
 const int TARGET_PULSE_OFFSET = 1;  // When going to target, go to the nth pulse of the target panel //TODO chuis tjrs pas sur que ce soit utile... au moment du passage optique, suffit de lui faire croire qu'il est en avant ou en arrière et ça devrait faire le job pareil
 static_assert(TARGET_PULSE_OFFSET >= 0 && TARGET_PULSE_OFFSET < PULSES_PER_PANEL, "OFFSET must be in range [0-PULSES_PER_PANEL]");
 static_assert(DEFAULT_PANEL_PULSE_OFFSET >= 0 && DEFAULT_PANEL_PULSE_OFFSET < PULSES_PER_PANEL, "OFFSET must be in range [0-PULSES_PER_PANEL]");
@@ -104,6 +114,7 @@ static_assert(RUN_SPEED > 90, "RUN_SPEED must be greater than 90 or everything w
 
 // Globals
 unsigned long loopMillis = 0;
+unsigned long lastLoopMillis = 0;  // Variable to store the last loop time
 ESP8266WebServer server(80);
 Encoder encoder(ENCODER_PIN_A, ENCODER_PIN_B);
 int targetPanel = 0;                 // Panneau cible //TODO utiliser un targetPulses et virer quasi tous les appels get/setPanel sauf depuis l'api ou les debug
@@ -125,7 +136,7 @@ std::map<String, String> lastDebugMessages;  // Map to store the last debug mess
 
 void emergencyStop(String message) {
   servo.write(STOP_SPEED);  // First things first, stop the motor
-  setCurrentState(EMERGENCY_STOPPED);
+  //setCurrentState(EMERGENCY_STOPPED);
   // errorFlag = true; //TODO à voir si redondant ou safe
   errorMessage = message;
   Serial.println(String(loopMillis) + " EMERGENCY STOP: " + message);
@@ -160,6 +171,7 @@ void setTargetPanel(int panel) {
 String buildDebugJson(String message) {
   String debugJson = "{";
   debugJson += "\"msg\":\"" + message + "\"" +
+               ",\"dur\":" + String(loopMillis - lastLoopMillis) +
                ",\"state\":" + stateToString(currentState) +
                ",\"currentPanel\":" + String(getCurrentPanel()) +
                ",\"currentPulses\":" + String(getCurrentPulses()) +
@@ -300,7 +312,7 @@ bool isTargetPanelReached() {
 float calculateSpeedCalibration() {
   // Half speed when we are about to detect the 2nd edge  // TODO problème si on ralentit à la calibration initiale, au prochain tour à plein régime on va pas avoir exactement la même position ? Après essais pratiques, semblerait que ça fasse aucune différence car le tout est assez réactif même à pleine vitesse
   if (DETECTED_STATE == LOW) {
-    return sensorState == LOW ? 0.5f : 1.0f;
+    return sensorState == LOW ? 0.3f : 1.0f;
   } else {
     return sensorState == HIGH ? 0.5f : 1.0f;
   }
@@ -435,7 +447,7 @@ void checkForRunningErrors() {
       lastBlockageCheckTime = loopMillis;
       lastBlockageCheckPulses = currentPulses;
     } else {
-      emergencyStop("Blockage detected: Motor running in wrong direction");
+      //emergencyStop("Blockage detected: Motor running in wrong direction"); //Marche pas car la condition du if au dessus inclut le timeout
     }
   }
 
@@ -443,7 +455,7 @@ void checkForRunningErrors() {
   {
     static int lastStepsCheckPulses = 0;
     int deltaPulses = (currentPulses - lastStepsCheckPulses + PULSES_COUNT) % PULSES_COUNT;
-    assertThis(deltaPulses <= 1, "Missing steps detected: currentPulses=" + String(currentPulses) + " lastStepsCheckPulses=" + String(lastStepsCheckPulses));  // TODO Détecter encodeur tourne dans le mauvais sens ?
+    //assertThis(deltaPulses <= 1, "Missing steps detected: currentPulses=" + String(currentPulses) + " lastStepsCheckPulses=" + String(lastStepsCheckPulses));  // TODO Détecter encodeur tourne dans le mauvais sens ?
     lastStepsCheckPulses = currentPulses;
   }
 
@@ -482,17 +494,21 @@ void setup() {
   lastSensorState = digitalRead(OPTICAL_SENSOR_PIN);  // Initialize lastSensorState
 }
 
+
 void loop() {
   loopMillis = millis();
+
   connectToWiFi();  // Keep it alive
   readSensors();
   evaluateStateTransitions();
   processStateActions();
   checkForRunningErrors();  // Check for blockages anc co
 #ifdef DEBUG_ENABLED
-  serialPrintThrottled("ALL", buildDebugJson(""));
+  //serialPrintThrottled("ALL", buildDebugJson(""));
 #endif
   server.handleClient();  // Handle incoming HTTP requests
+
+    lastLoopMillis = loopMillis;  // Update last loop time
 }
 
 void setMotorSpeed(float normalizedSpeed) {
