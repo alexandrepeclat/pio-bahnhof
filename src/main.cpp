@@ -12,7 +12,6 @@
 //- Faciliter l'ajustement de la roue optique
 //   - fixation par le haut ?
 //   - fentes pour voir le trou ?
-//   - ligne visuelle pour guider sur la roue (OUI FACILE)
 //- Aligner fente avec dent car ça coince mieux sur cette position
 //- Permettre de découpler les roues ? dur
 //  - Roue libre à insérer une fois que tout est en place pour permettre de libérer le mécanisme en manuel) ?
@@ -23,14 +22,16 @@
 //  - Spacer imprimé entre roue et base encodeur ?
 //  - Trou de la roue pas obligé de passer au travers. le bas peut être plein et bloquer pour pas que la roue remonte le shaft
 //  - Rondelle entre roue et plaque métal ?
-//- Prévoir plus de place pour pins capteur optique
-//- V2 - Trous des vis encodeur pas assez profonds
+//- Prévoir ENCORE plus de place pour pins capteur optique
+//- Espacer les roues imprimées de 0.1-2mm (ou les diminuer de taille) pour avoir une tolérance ?
 
 // TODO SOFTWARE :
 // https://github.com/madhephaestus/ESP32Encoder (complet et avec interruptions)
 // https://github.com/sandy9159/How-to-connect-optical-rotary-encoder-with-Arduino (pas quadrature mais directionnel)
 // TODO ON DOIT tenir compte d'un certain offset pour savoir si on a atteint le target car quand la boucle stoppe le moteur, c'est déjà dépassé de quelques steps
-
+// - Ou alors voir si on gère le stop dans les interruptions encodeur..... tout est dans les interruptions chais pas trop si c'est bien...
+// - Vu que l'optique sette l'encodeur à zéro, si c'est fait dans sa propre interruption moui (mais il y a des bouces sur font falling aussi), si c'est fait dans les interruptions encodeur ça a encore du sens (on prend le rising edge au moment d'un step d'encodeur)
+// - Vu que lorsqu'on targette on veut s'arrêter dès qu'on a passé un step d'encodeur, ça peut avoir du sens de le faire dans les interruptions encodeur.........
 // TODO ça semble se mettre en veille au bout d'un moment......
 // TODO réorganiser la détection d'erreurs
 // - on a emergencyStop et assertThis un peu interchangeables
@@ -329,11 +330,11 @@ float calculateSpeedMovingToTarget() {
   if (remainingPulses == 0) {
     return 0.f;
   } else if (remainingPulses <= PULSES_PER_PANEL) {
-    return 0.2f;
-  } else if (remainingPulses <= PULSES_PER_PANEL * 3) {
     return 0.3f;
+  } else if (remainingPulses <= PULSES_PER_PANEL * 3) {
+    return 0.5f;
   } else if (remainingPulses <= PULSES_PER_PANEL * 5) {
-    return 0.4f;
+    return 0.7f;
   } else {
     return 1.0f;  // Constant speed accross all panels
   }
@@ -435,16 +436,16 @@ void checkForRunningErrors() {
     if (motorSpeed > STOP_SPEED && loopMillis - lastBlockageCheckTime > BLOCKAGE_TIMEOUT) {
       if (currentPulses == lastBlockageCheckPulses) {
         emergencyStop("Blockage detected: Encoder value did not change for " + String(BLOCKAGE_TIMEOUT) + " ms");
+      } else if (currentPulses < lastBlockageCheckPulses) {
+        emergencyStop("Blockage detected: Encoder value decreased");
       }
       // When motor is running, update values only after each timed check
       lastBlockageCheckTime = loopMillis;
       lastBlockageCheckPulses = currentPulses;
-    } else if (motorSpeed == STOP_SPEED) {
+    } else {
       // When motor is stopped, always update values so when it starts, we wait for a full timeout before 1st check (grace period)
       lastBlockageCheckTime = loopMillis;
       lastBlockageCheckPulses = currentPulses;
-    } else {
-      // emergencyStop("Blockage detected: Motor running in wrong direction"); //Marche pas car la condition du if au dessus inclut le timeout
     }
   }
 
