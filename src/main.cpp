@@ -5,6 +5,7 @@
 #include <map>
 #include <secrets.h>
 
+
 // TODO MECANIQUE :
 //- Inverser capteur optique ? et mettre trou vis supplémentaire ailleurs (je dois faire le trou de toute manière)
 //- Roue optique plus fine
@@ -28,9 +29,9 @@
 
 // TODO SOFTWARE :
 
-//TODO ON PEUT PAS VERIFIER L'OPTIQUE DANS UNE BOUCLE sinon on a toujours ce décalage entre le moment où on mesure et ce qu'il s'est passé depuis !!!!!!!!!!!!!
 //TODO ON DOIT tenir compte d'un certain offset pour savoir si on a atteint le target car quand la boucle stoppe le moteur, c'est déjà dépassé de quelques steps
 
+// TODO ça semble se mettre en veille au bout d'un moment......
 // TODO réorganiser la détection d'erreurs
 // - on a emergencyStop et assertThis un peu interchangeables
 // - on a des checks sur des getters ou à des moments dans la logique du code et dans les fonctions dédiées...
@@ -104,7 +105,7 @@ const int ENCODER_DIRECTION_SIGN = 1;
 const int TARGET_PULSE_OFFSET = 1;  // When going to target, go to the nth pulse of the target panel //TODO chuis tjrs pas sur que ce soit utile... au moment du passage optique, suffit de lui faire croire qu'il est en avant ou en arrière et ça devrait faire le job pareil
 static_assert(TARGET_PULSE_OFFSET >= 0 && TARGET_PULSE_OFFSET < PULSES_PER_PANEL, "OFFSET must be in range [0-PULSES_PER_PANEL]");
 static_assert(DEFAULT_PANEL_PULSE_OFFSET >= 0 && DEFAULT_PANEL_PULSE_OFFSET < PULSES_PER_PANEL, "OFFSET must be in range [0-PULSES_PER_PANEL]");
-const bool OPTICAL_DETECTED_EDGE = RISING;  // Capteur à 1 quand coupé / 0 quand trou / ralentit quand trou, et calibre sur rising vers coupé
+const int OPTICAL_DETECTED_EDGE = RISING;  // Capteur à 1 quand coupé / 0 quand trou / ralentit quand trou, et calibre sur rising vers coupé
 
 // Servo configuration
 Servo servo;
@@ -128,6 +129,7 @@ int targetPulses = 0;  // New targetPulses property
 bool calibrated = false;
 const unsigned long BLOCKAGE_TIMEOUT = 500;  // Timeout in milliseconds to detect blockage
 int opticalDetectedPulses = 0;
+int opticalDetectedEdgesCount = 0;
 
 #ifdef DEBUG_ENABLED
 std::map<String, String> lastDebugMessages;  // Map to store the last debug messages
@@ -178,7 +180,8 @@ String buildDebugJson(String message) {
                ",\"targetPulses\":" + String(getTargetPulses()) +
                ",\"optical\":" + String(sensorState) +
                ",\"edge\":" + String(isOpticalEdgeDetected) +
-               ",\"opticalDetectedPulses\":" + String(opticalDetectedPulses) +
+               ",\"odPulses\":" + String(opticalDetectedPulses) +
+                ",\"odCount\":" + String(opticalDetectedEdgesCount) +
                ",\"calibrated\":" + String(calibrated) +
                ",\"dist\":" + String(getRemainingPulses()) +
                ",\"speed\":" + String(calculateSpeedMovingToTarget()) +
@@ -322,11 +325,11 @@ float calculateSpeedMovingToTarget() {
   if (remainingPulses == 0) {
     return 0.f;
   } else if (remainingPulses <= PULSES_PER_PANEL) {
-    return 0.3f;
+    return 0.2f;
   } else if (remainingPulses <= PULSES_PER_PANEL * 3) {
-    return 0.5f;
+    return 0.3f;
   } else if (remainingPulses <= PULSES_PER_PANEL * 5) {
-    return 0.7f;
+    return 0.4f;
   } else {
     return 1.0f;  // Constant speed accross all panels
   }
@@ -394,8 +397,7 @@ void readSensors() {
 
   if (isOpticalEdgeDetected) {
     assertThis(!calibrated || opticalDetectedPulses == DEFAULT_PULSE, "Optical edge detected but not at default pulse. opticalDetectedPulses = " + String(opticalDetectedPulses));  // TODO chais pas pourquoi mais si on lit pas cette valeur dans le debug, ça émet l'erreur alors qu'après vérification elle est pas censée arriver. On pourrait aussi asserter que si currentPulse == DEFAULT_PULSE on doit avoir ou non l'edge à chaque boucle
-    calibrated = true;    
-    isOpticalEdgeDetected = false;  // Reset the flag
+    calibrated = true;
   }
 
   // TODO c'est faux, mais dans l'idée, faudrait détecter les deux cas via un code assez compact
@@ -458,6 +460,7 @@ void IRAM_ATTR handleOpticalSensorInterrupt() {
   int puls = encoder.read();
   isOpticalEdgeDetected = true;
   opticalDetectedPulses = puls;
+  opticalDetectedEdgesCount++;
   encoder.write(DEFAULT_PULSE * ENCODER_DIRECTION_SIGN);
   currentPulses = DEFAULT_PULSE;
 }
@@ -484,24 +487,28 @@ void setup() {
   servo.write(STOP_SPEED);  // Ensure the servo starts stopped using the centralized function
 
   // Optical sensor setup
-  pinMode(OPTICAL_SENSOR_PIN, INPUT);  // Configure le capteur optique en entrée
+  pinMode(OPTICAL_SENSOR_PIN, INPUT_PULLDOWN_16);  // Configure le capteur optique en entrée
   attachInterrupt(digitalPinToInterrupt(OPTICAL_SENSOR_PIN), handleOpticalSensorInterrupt, OPTICAL_DETECTED_EDGE);  // Attach interrupt
 }
 
-void loop() {
-  loopMillis = millis();
 
+
+void loop() {
+  server.handleClient();  // Handle incoming HTTP requests
   connectToWiFi();  // Keep it alive
+  loopMillis = millis();
+  delay(2);
   readSensors();  // Read sensors and handle edge detection
   evaluateStateTransitions();
   processStateActions();
   checkForRunningErrors();  // Check for blockages anc co
-#ifdef DEBUG_ENABLED
-  serialPrintThrottled("ALL", buildDebugJson(""));
-#endif
-  server.handleClient();  // Handle incoming HTTP requests
 
+#ifdef DEBUG_ENABLED
+//String json = buildDebugJson("");
+  //serialPrintThrottled("ALL", json);
+#endif
   lastLoopMillis = loopMillis;  // Update last loop time
+  isOpticalEdgeDetected = false;  // Reset the flag
 }
 
 void setMotorSpeed(float normalizedSpeed) {
