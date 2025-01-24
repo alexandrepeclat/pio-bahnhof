@@ -1,6 +1,6 @@
 #include <ESP8266WebServer.h>
 #include <ESP8266WiFi.h>
-#include <Encoder.h>
+// #include <Encoder.h>  // Remove this line
 #include <Servo.h>
 #include <map>
 #include <secrets.h>
@@ -28,7 +28,8 @@
 //- V2 - Trous des vis encodeur pas assez profonds
 
 // TODO SOFTWARE :
-
+//https://github.com/madhephaestus/ESP32Encoder (complet et avec interruptions)
+//https://github.com/sandy9159/How-to-connect-optical-rotary-encoder-with-Arduino (pas quadrature mais directionnel)
 //TODO ON DOIT tenir compte d'un certain offset pour savoir si on a atteint le target car quand la boucle stoppe le moteur, c'est déjà dépassé de quelques steps
 
 // TODO ça semble se mettre en veille au bout d'un moment......
@@ -117,7 +118,6 @@ static_assert(RUN_SPEED > 90, "RUN_SPEED must be greater than 90 or everything w
 unsigned long loopMillis = 0;
 unsigned long lastLoopMillis = 0;  // Variable to store the last loop time
 ESP8266WebServer server(80);
-Encoder encoder(ENCODER_PIN_A, ENCODER_PIN_B);
 int targetPanel = 0;                 // Panneau cible //TODO utiliser un targetPulses et virer quasi tous les appels get/setPanel sauf depuis l'api ou les debug
 int currentPulses = 0;               // Variable to store the encoder value
 bool isOpticalEdgeDetected = false;  // Variable to store if the optical edge is detected during the current loop
@@ -130,6 +130,9 @@ bool calibrated = false;
 const unsigned long BLOCKAGE_TIMEOUT = 500;  // Timeout in milliseconds to detect blockage
 int opticalDetectedPulses = 0;
 int opticalDetectedEdgesCount = 0;
+int encoderInterruptCallCount = 0;
+
+volatile int encoderPulses = 0;  // New variable to store encoder pulses
 
 #ifdef DEBUG_ENABLED
 std::map<String, String> lastDebugMessages;  // Map to store the last debug messages
@@ -144,7 +147,7 @@ void emergencyStop(String message) {
 }
 
 int getCurrentPulses() {
-  return currentPulses;
+  return currentPulses % PULSES_COUNT;
 }
 
 void setTargetPulses(int pulses) {
@@ -182,6 +185,7 @@ String buildDebugJson(String message) {
                ",\"edge\":" + String(isOpticalEdgeDetected) +
                ",\"odPulses\":" + String(opticalDetectedPulses) +
                 ",\"odCount\":" + String(opticalDetectedEdgesCount) +
+                ",\"encInt\":" + String(encoderInterruptCallCount) +
                ",\"calibrated\":" + String(calibrated) +
                ",\"dist\":" + String(getRemainingPulses()) +
                ",\"speed\":" + String(calculateSpeedMovingToTarget()) +
@@ -392,7 +396,7 @@ void processStateActions() {
 
 void readSensors() {
   // Read encoder value, reset if edge was detected
-  currentPulses = (encoder.read() * ENCODER_DIRECTION_SIGN) % PULSES_COUNT;
+  currentPulses = (encoderPulses * ENCODER_DIRECTION_SIGN) % PULSES_COUNT;
   sensorState = digitalRead(OPTICAL_SENSOR_PIN);
 
   if (isOpticalEdgeDetected) {
@@ -457,12 +461,29 @@ void checkForRunningErrors() {
 
 // Function to handle the interrupt
 void IRAM_ATTR handleOpticalSensorInterrupt() {
-  int puls = encoder.read();
+  int puls = encoderPulses;
   isOpticalEdgeDetected = true;
   opticalDetectedPulses = puls;
   opticalDetectedEdgesCount++;
-  encoder.write(DEFAULT_PULSE * ENCODER_DIRECTION_SIGN);
-  currentPulses = DEFAULT_PULSE;
+  //encoderPulses = DEFAULT_PULSE * ENCODER_DIRECTION_SIGN;
+  //currentPulses = DEFAULT_PULSE;
+}
+
+void IRAM_ATTR handleEncoderInterruptA() {
+  encoderInterruptCallCount++;
+  if (digitalRead(ENCODER_PIN_A) == digitalRead(ENCODER_PIN_B)) {
+    encoderPulses++;
+  } else {
+    encoderPulses--;
+  }
+}
+
+void IRAM_ATTR handleEncoderInterruptB() {
+  if (digitalRead(ENCODER_PIN_A) == digitalRead(ENCODER_PIN_B)) {
+    encoderPulses--;
+  } else {
+    encoderPulses++;
+  }
 }
 
 void setup() {
@@ -489,9 +510,13 @@ void setup() {
   // Optical sensor setup
   pinMode(OPTICAL_SENSOR_PIN, INPUT_PULLDOWN_16);  // Configure le capteur optique en entrée
   attachInterrupt(digitalPinToInterrupt(OPTICAL_SENSOR_PIN), handleOpticalSensorInterrupt, OPTICAL_DETECTED_EDGE);  // Attach interrupt
+
+  // Encoder setup
+  pinMode(ENCODER_PIN_A, INPUT_PULLUP);
+  pinMode(ENCODER_PIN_B, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(ENCODER_PIN_A), handleEncoderInterruptA, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(ENCODER_PIN_B), handleEncoderInterruptB, CHANGE);
 }
-
-
 
 void loop() {
   server.handleClient();  // Handle incoming HTTP requests
@@ -504,8 +529,8 @@ void loop() {
   checkForRunningErrors();  // Check for blockages anc co
 
 #ifdef DEBUG_ENABLED
-//String json = buildDebugJson("");
-  //serialPrintThrottled("ALL", json);
+String json = buildDebugJson(""); 
+  serialPrintThrottled("ALL", json);
 #endif
   lastLoopMillis = loopMillis;  // Update last loop time
   isOpticalEdgeDetected = false;  // Reset the flag
