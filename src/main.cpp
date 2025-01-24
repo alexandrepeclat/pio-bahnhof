@@ -136,7 +136,7 @@ std::map<String, String> lastDebugMessages;  // Map to store the last debug mess
 void emergencyStop(String message) {
   servo.write(STOP_SPEED);  // First things first, stop the motor
   //setCurrentState(EMERGENCY_STOPPED);
-  // errorFlag = true; //TODO à voir si redondant ou safe
+  // errorFlag = true; //TODO à voir si redondant ou safe ou si servo.detach() serait mieux et si ça fonctionnerait
   errorMessage = message;
   Serial.println(String(loopMillis) + " EMERGENCY STOP: " + message);
 }
@@ -310,9 +310,8 @@ bool isTargetPanelReached() {
 }
 
 float calculateSpeedCalibration() {
-  // Half speed when we are about to detect the 2nd edge  // TODO problème si on ralentit à la calibration initiale, au prochain tour à plein régime on va pas avoir exactement la même position ? Après essais pratiques, semblerait que ça fasse aucune différence car le tout est assez réactif même à pleine vitesse
   if (OPTICAL_DETECTED_EDGE == RISING) {
-    return sensorState == LOW ? 0.3f : 1.0f;
+    return sensorState == LOW ? 0.3f : 1.0f; // Half speed when we are about to detect the 2nd edge 
   } else {
     return sensorState == HIGH ? 0.5f : 1.0f;
   }
@@ -359,7 +358,7 @@ void evaluateStateTransitions() {
     }
     case CALIBRATING: {
       if (isOpticalEdgeDetected) {
-        setCurrentState(STOPPED);
+        setCurrentState(STOPPED); //TODO Go to panel 0 instead via MOVING_TO_TARGET ? (attention pas changer les valeurs de quoi que ce soit ici en principe mais à voir)
       }
       break;
     }
@@ -405,7 +404,6 @@ void readSensors() {
 }
 
 void connectToWiFi() {
-  assert(!WiFi.getPersistent());
   if (WiFi.status() != WL_CONNECTED) {
     setMotorSpeed(0);  // Stop the motor if we are offline
     WiFi.disconnect();
@@ -444,14 +442,6 @@ void checkForRunningErrors() {
     }
   }
 
-  // Detect missing steps
-  {
-    static int lastStepsCheckPulses = 0;
-    int deltaPulses = (currentPulses - lastStepsCheckPulses + PULSES_COUNT) % PULSES_COUNT;
-    //assertThis(deltaPulses <= 1, "Missing steps detected: currentPulses=" + String(currentPulses) + " lastStepsCheckPulses=" + String(lastStepsCheckPulses));  // TODO Détecter encodeur tourne dans le mauvais sens ?
-    lastStepsCheckPulses = currentPulses;
-  }
-
   // Detect motor speed out of bounds
   {
     if (motorSpeed < 90) {
@@ -473,6 +463,7 @@ void IRAM_ATTR handleOpticalSensorInterrupt() {
 }
 
 void setup() {
+  assert(!WiFi.getPersistent());
   Serial.begin(115200);
   connectToWiFi();
 
@@ -510,7 +501,7 @@ void loop() {
 #endif
   server.handleClient();  // Handle incoming HTTP requests
 
-    lastLoopMillis = loopMillis;  // Update last loop time
+  lastLoopMillis = loopMillis;  // Update last loop time
 }
 
 void setMotorSpeed(float normalizedSpeed) {
@@ -523,6 +514,5 @@ void setMotorSpeed(float normalizedSpeed) {
   // Constrain normalized speed and map it to servo speed values
   normalizedSpeed = constrain(normalizedSpeed, 0.f, 1.f);
   int speed = map(normalizedSpeed * 100, 0, 100, STOP_SPEED, RUN_SPEED);
-  assertThis(speed >= STOP_SPEED && speed <= RUN_SPEED, "Speed " + String(speed) + " out of bounds");
   servo.write(speed);
 }
