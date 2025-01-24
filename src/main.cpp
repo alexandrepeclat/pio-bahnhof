@@ -118,15 +118,16 @@ static_assert(RUN_SPEED > 90, "RUN_SPEED must be greater than 90 or everything w
 unsigned long loopMillis = 0;
 unsigned long lastLoopMillis = 0;  // Variable to store the last loop time
 ESP8266WebServer server(80);
-int targetPanel = 0;                 // Panneau cible //TODO utiliser un targetPulses et virer quasi tous les appels get/setPanel sauf depuis l'api ou les debug
-int currentPulses = 0;               // Variable to store the encoder value
-bool isOpticalEdgeDetected = false;  // Variable to store if the optical edge is detected during the current loop
+int targetPanel = 0;    // Panneau cible //TODO utiliser un targetPulses et virer quasi tous les appels get/setPanel sauf depuis l'api ou les debug
+int currentPulses = 0;  // Variable to store the encoder value
 int sensorState = LOW;
 bool errorFlag = false;    // Emergency stop flag
 String errorMessage = "";  // Emergency stop message
 AppState currentState = STOPPED;
 int targetPulses = 0;  // New targetPulses property
 bool calibrated = false;
+const bool DETECTED_STATE = LOW;             // Define the detected state for the optical sensor
+int lastSensorState = HIGH;                  // Initialize to HIGH (not detected)
 const unsigned long BLOCKAGE_TIMEOUT = 500;  // Timeout in milliseconds to detect blockage
 int opticalDetectedPulses = 0;
 int opticalDetectedEdgesCount = 0;
@@ -140,8 +141,8 @@ std::map<String, String> lastDebugMessages;  // Map to store the last debug mess
 
 void emergencyStop(String message) {
   servo.write(STOP_SPEED);  // First things first, stop the motor
-  // setCurrentState(EMERGENCY_STOPPED);
-  //  errorFlag = true; //TODO à voir si redondant ou safe ou si servo.detach() serait mieux et si ça fonctionnerait
+  setCurrentState(EMERGENCY_STOPPED);
+  errorFlag = true;  // TODO à voir si redondant ou safe ou si servo.detach() serait mieux et si ça fonctionnerait
   errorMessage = message;
   Serial.println(String(loopMillis) + " EMERGENCY STOP: " + message);
 }
@@ -182,7 +183,6 @@ String buildDebugJson(String message) {
                ",\"targetPanel\":" + String(getTargetPanel()) +
                ",\"targetPulses\":" + String(getTargetPulses()) +
                ",\"optical\":" + String(sensorState) +
-               ",\"edge\":" + String(isOpticalEdgeDetected) +
                ",\"odPulses\":" + String(opticalDetectedPulses) +
                ",\"odCount\":" + String(opticalDetectedEdgesCount) +
                ",\"encInt\":" + String(encoderInterruptCallCount) +
@@ -459,30 +459,16 @@ void checkForRunningErrors() {
   }
 }
 
-// Function to handle the interrupt
-// void IRAM_ATTR handleOpticalSensorInterrupt() {
-//   int puls = encoderPulses;
-//   isOpticalEdgeDetected = true;
-//   opticalDetectedPulses = puls;
-//   opticalDetectedEdgesCount++;
-//   //encoderPulses = DEFAULT_PULSE * ENCODER_DIRECTION_SIGN;
-//   //currentPulses = DEFAULT_PULSE;
-// }
-
-const bool DETECTED_STATE = LOW;  // Define the detected state for the optical sensor
-int lastSensorState = HIGH;       // Initialize to HIGH (not detected)
-
 void IRAM_ATTR updateOpticalState() {
   sensorState = digitalRead(OPTICAL_SENSOR_PIN);
-  isOpticalEdgeDetected = (DETECTED_STATE == LOW && sensorState == HIGH && lastSensorState == LOW) ||
-                          (DETECTED_STATE == HIGH && sensorState == LOW && lastSensorState == HIGH);
+  bool isOpticalEdgeDetected = (DETECTED_STATE == LOW && sensorState == HIGH && lastSensorState == LOW) ||
+                               (DETECTED_STATE == HIGH && sensorState == LOW && lastSensorState == HIGH);
   lastSensorState = sensorState;
 
   if (isOpticalEdgeDetected) {
     opticalDetectedEdgesCount++;
     opticalDetectedPulses = encoderPulses;
     encoderPulses = DEFAULT_PULSE * ENCODER_DIRECTION_SIGN;
-    // currentPulses = DEFAULT_PULSE;
     calibrated = true;
   }
 }
@@ -495,20 +481,21 @@ void IRAM_ATTR handleEncoderInterruptA() {
     encoderPulses--;
   }
   updateOpticalState();
-  currentPulses = (encoderPulses * ENCODER_DIRECTION_SIGN) % PULSES_COUNT;
+  currentPulses = (encoderPulses * ENCODER_DIRECTION_SIGN) % PULSES_COUNT;  // TODO travailler qu'avec une var ou utiliser getter getCurrentPulses ?
   if (currentState == MOVING_TO_TARGET && targetPulses == currentPulses) {
-    setCurrentState(STOPPED);
+    setCurrentState(STOPPED);  // TODO elle est pas en ram celle-là... et la var n'est pas volatile... à voir (et pour les autres var aussi)
   }
 }
 
 void IRAM_ATTR handleEncoderInterruptB() {
+  encoderInterruptCallCount++;
   if (digitalRead(ENCODER_PIN_A) == digitalRead(ENCODER_PIN_B)) {
     encoderPulses--;
   } else {
     encoderPulses++;
   }
   updateOpticalState();
-  currentPulses = (encoderPulses * ENCODER_DIRECTION_SIGN) % PULSES_COUNT;
+  currentPulses = (encoderPulses * ENCODER_DIRECTION_SIGN) % PULSES_COUNT;  // TODO à voir car on a aussi un getter qui fait modulo... et au lieu de ENCODER_SIGN on peut pas faire simplement x + size double modulo ?
   if (currentState == MOVING_TO_TARGET && targetPulses == currentPulses) {
     setCurrentState(STOPPED);
   }
@@ -557,11 +544,9 @@ void loop() {
   checkForRunningErrors();  // Check for blockages anc co
 
 #ifdef DEBUG_ENABLED
-  String json = buildDebugJson("");
-  serialPrintThrottled("ALL", json);
+  serialPrintThrottled("ALL", buildDebugJson(""));
 #endif
-  lastLoopMillis = loopMillis;    // Update last loop time
-  isOpticalEdgeDetected = false;  // Reset the flag
+  lastLoopMillis = loopMillis;  // Update last loop time
 }
 
 void setMotorSpeed(float normalizedSpeed) {
