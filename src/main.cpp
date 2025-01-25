@@ -119,20 +119,23 @@ unsigned long loopMillis = 0;
 unsigned long lastLoopMillis = 0;  // Variable to store the last loop time
 ESP8266WebServer server(80);
 int targetPanel = 0;    // Panneau cible //TODO utiliser un targetPulses et virer quasi tous les appels get/setPanel sauf depuis l'api ou les debug
-int currentPulses = 0;  // Variable to store the encoder value
-int sensorState = LOW;
+//volatile int currentPulses = 0;  // Variable to store the encoder value
+volatile int sensorState = LOW;
 bool errorFlag = false;    // Emergency stop flag
 String errorMessage = "";  // Emergency stop message
 AppState currentState = STOPPED;
 int targetPulses = 0;  // New targetPulses property
-bool calibrated = false;
+volatile bool calibrated = false;
 const bool DETECTED_STATE = LOW;             // Define the detected state for the optical sensor
-int lastSensorState = HIGH;                  // Initialize to HIGH (not detected)
+volatile int lastSensorState = HIGH;                  // Initialize to HIGH (not detected)
 const unsigned long BLOCKAGE_TIMEOUT = 500;  // Timeout in milliseconds to detect blockage
 int opticalDetectedPulses = 0;
 int opticalDetectedEdgesCount = 0;
 int encoderInterruptCallCount = 0;
-
+int countAinc = 0;
+int countAdec = 0;
+int countBinc = 0;
+int countBdec = 0;
 volatile int encoderPulses = 0;  // New variable to store encoder pulses
 
 #ifdef DEBUG_ENABLED
@@ -148,7 +151,7 @@ void emergencyStop(String message) {
 }
 
 int getCurrentPulses() {
-  return currentPulses % PULSES_COUNT;
+  return (encoderPulses * ENCODER_DIRECTION_SIGN) % PULSES_COUNT;
 }
 
 void setTargetPulses(int pulses) {
@@ -177,7 +180,6 @@ String buildDebugJson(String message) {
   String debugJson = "{";
   debugJson += "\"msg\":\"" + message + "\"" +
                //",\"dur\":" + String(loopMillis - lastLoopMillis) +
-               ",\"state\":" + stateToString(currentState) +
                ",\"currentPanel\":" + String(getCurrentPanel()) +
                ",\"currentPulses\":" + String(getCurrentPulses()) +
                ",\"targetPanel\":" + String(getTargetPanel()) +
@@ -185,14 +187,20 @@ String buildDebugJson(String message) {
                ",\"optical\":" + String(sensorState) +
                ",\"odPulses\":" + String(opticalDetectedPulses) +
                ",\"odCount\":" + String(opticalDetectedEdgesCount) +
+                ",\"encPulses\":" + String(encoderPulses) +
+                ",\"encAinc\":" + String(countAinc) +
+                ",\"encAdec\":" + String(countAdec) +
+                ",\"encBinc\":" + String(countBinc) +
+                ",\"encBdec\":" + String(countBdec) +
                ",\"encInt\":" + String(encoderInterruptCallCount) +
                ",\"calibrated\":" + String(calibrated) +
                ",\"dist\":" + String(getRemainingPulses()) +
-               ",\"speed\":" + String(calculateSpeedMovingToTarget()) +
+               //",\"speed\":" + String(calculateSpeedMovingToTarget()) +
                ",\"servo\":" + String(servo.read()) +
-               ",\"errorFlag\":" + String(errorFlag) +
-               ",\"errorMessage\":\"" + errorMessage + "\"";
-  debugJson += "}";
+               //",\"errorFlag\":" + String(errorFlag) +
+               //",\"errorMessage\":\"" + errorMessage + "\"" +
+               ",\"state\":" + stateToString(currentState) +
+               "}";
   return debugJson;
 }
 
@@ -223,7 +231,6 @@ String stateToString(AppState state) {
 }
 
 void setCurrentState(AppState newState) {
-  serialPrintThrottled("STATE", "state:" + stateToString(currentState) + " newState:" + stateToString(newState));
   currentState = newState;
 }
 
@@ -398,7 +405,7 @@ void processStateActions() {
 void readSensors() {
   // Read encoder value, reset if edge was detected
   // currentPulses = (encoderPulses * ENCODER_DIRECTION_SIGN) % PULSES_COUNT;
-  // sensorState = digitalRead(OPTICAL_SENSOR_PIN);
+   sensorState = digitalRead(OPTICAL_SENSOR_PIN);
 
   // if (isOpticalEdgeDetected) {
   //   assertThis(!calibrated || opticalDetectedPulses == DEFAULT_PULSE, "Optical edge detected but not at default pulse. opticalDetectedPulses = " + String(opticalDetectedPulses));  // TODO chais pas pourquoi mais si on lit pas cette valeur dans le debug, ça émet l'erreur alors qu'après vérification elle est pas censée arriver. On pourrait aussi asserter que si currentPulse == DEFAULT_PULSE on doit avoir ou non l'edge à chaque boucle
@@ -434,18 +441,18 @@ void checkForRunningErrors() {
     static int lastBlockageCheckPulses = 0;
 
     if (motorSpeed > STOP_SPEED && loopMillis - lastBlockageCheckTime > BLOCKAGE_TIMEOUT) {
-      if (currentPulses == lastBlockageCheckPulses) {
+      if (getCurrentPulses() == lastBlockageCheckPulses) {
         emergencyStop("Blockage detected: Encoder value did not change for " + String(BLOCKAGE_TIMEOUT) + " ms");
-      } else if (currentPulses < lastBlockageCheckPulses) {
+      } else if (getCurrentPulses() < lastBlockageCheckPulses) {
         emergencyStop("Blockage detected: Encoder value decreased");
       }
       // When motor is running, update values only after each timed check
       lastBlockageCheckTime = loopMillis;
-      lastBlockageCheckPulses = currentPulses;
+      lastBlockageCheckPulses = getCurrentPulses();
     } else {
       // When motor is stopped, always update values so when it starts, we wait for a full timeout before 1st check (grace period)
       lastBlockageCheckTime = loopMillis;
-      lastBlockageCheckPulses = currentPulses;
+      lastBlockageCheckPulses = getCurrentPulses();
     }
   }
 
@@ -459,46 +466,52 @@ void checkForRunningErrors() {
   }
 }
 
-void IRAM_ATTR updateOpticalState() {
+void IRAM_ATTR checkOpticalSensor() {
   sensorState = digitalRead(OPTICAL_SENSOR_PIN);
-  bool isOpticalEdgeDetected = (DETECTED_STATE == LOW && sensorState == HIGH && lastSensorState == LOW) ||
-                               (DETECTED_STATE == HIGH && sensorState == LOW && lastSensorState == HIGH);
-  lastSensorState = sensorState;
-
-  if (isOpticalEdgeDetected) {
+  if ((DETECTED_STATE == LOW && sensorState == HIGH && lastSensorState == LOW) ||
+      (DETECTED_STATE == HIGH && sensorState == LOW && lastSensorState == HIGH)) {
     opticalDetectedEdgesCount++;
     opticalDetectedPulses = encoderPulses;
     encoderPulses = DEFAULT_PULSE * ENCODER_DIRECTION_SIGN;
     calibrated = true;
   }
+  lastSensorState = sensorState;
 }
+
+void IRAM_ATTR checkTargetReached() {
+  if (currentState == MOVING_TO_TARGET && targetPulses == getCurrentPulses()) {
+    setCurrentState(STOPPED);  // TODO elle est pas en ram celle-là... et la var n'est pas volatile... à voir (et pour les autres var aussi)
+  }
+}
+
+
 
 void IRAM_ATTR handleEncoderInterruptA() {
   encoderInterruptCallCount++;
   if (digitalRead(ENCODER_PIN_A) == digitalRead(ENCODER_PIN_B)) {
     encoderPulses++;
+    countAinc++;
   } else {
     encoderPulses--;
+    countAdec++;
   }
-  updateOpticalState();
-  currentPulses = (encoderPulses * ENCODER_DIRECTION_SIGN) % PULSES_COUNT;  // TODO travailler qu'avec une var ou utiliser getter getCurrentPulses ?
-  if (currentState == MOVING_TO_TARGET && targetPulses == currentPulses) {
-    setCurrentState(STOPPED);  // TODO elle est pas en ram celle-là... et la var n'est pas volatile... à voir (et pour les autres var aussi)
-  }
+  checkOpticalSensor();
+  //currentPulses = (encoderPulses * ENCODER_DIRECTION_SIGN) % PULSES_COUNT;  // TODO travailler qu'avec une var ou utiliser getter getCurrentPulses ? // TODO à voir car on a aussi un getter qui fait modulo... et au lieu de ENCODER_SIGN on peut pas faire simplement x + size double modulo ?
+  checkTargetReached();
 }
 
 void IRAM_ATTR handleEncoderInterruptB() {
   encoderInterruptCallCount++;
   if (digitalRead(ENCODER_PIN_A) == digitalRead(ENCODER_PIN_B)) {
     encoderPulses--;
+    countBdec++;
   } else {
     encoderPulses++;
+    countBinc++;
   }
-  updateOpticalState();
-  currentPulses = (encoderPulses * ENCODER_DIRECTION_SIGN) % PULSES_COUNT;  // TODO à voir car on a aussi un getter qui fait modulo... et au lieu de ENCODER_SIGN on peut pas faire simplement x + size double modulo ?
-  if (currentState == MOVING_TO_TARGET && targetPulses == currentPulses) {
-    setCurrentState(STOPPED);
-  }
+  checkOpticalSensor();
+  //currentPulses = (encoderPulses * ENCODER_DIRECTION_SIGN) % PULSES_COUNT;
+  checkTargetReached();
 }
 
 void setup() {
