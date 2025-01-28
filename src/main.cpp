@@ -111,32 +111,35 @@ const int OPTICAL_DETECTED_EDGE = RISING;  // Capteur à 1 quand coupé / 0 quan
 // Servo configuration
 Servo servo;
 const int STOP_SPEED = 90;  // Valeur pour arrêter le servo
-const int RUN_SPEED = 140;  // Vitesse du servo pour avancer (91-180) 140 c'est bien (met 6 secondes à faire un tour)
+const int RUN_SPEED = 120;  // Vitesse du servo pour avancer (91-180) 140 c'est bien (met 6 secondes à faire un tour)
 static_assert(RUN_SPEED > 90, "RUN_SPEED must be greater than 90 or everything will break !");
 
 // Globals
 unsigned long loopMillis = 0;
 unsigned long lastLoopMillis = 0;  // Variable to store the last loop time
 ESP8266WebServer server(80);
-int targetPanel = 0;    // Panneau cible //TODO utiliser un targetPulses et virer quasi tous les appels get/setPanel sauf depuis l'api ou les debug
-//volatile int currentPulses = 0;  // Variable to store the encoder value
-volatile int sensorState = LOW;
+int targetPanel = 0;  // Panneau cible //TODO utiliser un targetPulses et virer quasi tous les appels get/setPanel sauf depuis l'api ou les debug
+// volatile int currentPulses = 0;  // Variable to store the encoder value
+volatile bool sensorState = LOW;
 bool errorFlag = false;    // Emergency stop flag
 String errorMessage = "";  // Emergency stop message
-AppState currentState = STOPPED;
+volatile AppState currentState = STOPPED;
 int targetPulses = 0;  // New targetPulses property
 volatile bool calibrated = false;
 const bool DETECTED_STATE = LOW;             // Define the detected state for the optical sensor
-volatile int lastSensorState = HIGH;                  // Initialize to HIGH (not detected)
+volatile bool lastSensorState = HIGH;        // Initialize to HIGH (not detected)
 const unsigned long BLOCKAGE_TIMEOUT = 500;  // Timeout in milliseconds to detect blockage
-int opticalDetectedPulses = 0;
-int opticalDetectedEdgesCount = 0;
-int encoderInterruptCallCount = 0;
-int countAinc = 0;
-int countAdec = 0;
-int countBinc = 0;
-int countBdec = 0;
+volatile int opticalDetectedPulses = 0;
+volatile int opticalDetectedEdgesCount = 0;
+volatile int encoderInterruptCallCount = 0;
 volatile int encoderPulses = 0;  // New variable to store encoder pulses
+
+// Encoder state table for natural debouncing
+// const int8_t ENCODER_STATE_TABLE[16] = {0, -1, 1, 0, 1, 0, 0, -1, -1, 0, 0, 1, 0, 1, -1, 0};
+
+const int8_t ENCODER_STATE_TABLE[16] = {0, 1, -1, -0, -1, 0, -0, 1, 1, -0, 0, -1, -0, -1, 1, 0};
+
+volatile uint8_t encoderState = 0;
 
 #ifdef DEBUG_ENABLED
 std::map<String, String> lastDebugMessages;  // Map to store the last debug messages
@@ -187,11 +190,7 @@ String buildDebugJson(String message) {
                ",\"optical\":" + String(sensorState) +
                ",\"odPulses\":" + String(opticalDetectedPulses) +
                ",\"odCount\":" + String(opticalDetectedEdgesCount) +
-                ",\"encPulses\":" + String(encoderPulses) +
-                ",\"encAinc\":" + String(countAinc) +
-                ",\"encAdec\":" + String(countAdec) +
-                ",\"encBinc\":" + String(countBinc) +
-                ",\"encBdec\":" + String(countBdec) +
+               ",\"encPulses\":" + String(encoderPulses) +
                ",\"encInt\":" + String(encoderInterruptCallCount) +
                ",\"calibrated\":" + String(calibrated) +
                ",\"dist\":" + String(getRemainingPulses()) +
@@ -405,7 +404,7 @@ void processStateActions() {
 void readSensors() {
   // Read encoder value, reset if edge was detected
   // currentPulses = (encoderPulses * ENCODER_DIRECTION_SIGN) % PULSES_COUNT;
-   sensorState = digitalRead(OPTICAL_SENSOR_PIN);
+  sensorState = digitalRead(OPTICAL_SENSOR_PIN);
 
   // if (isOpticalEdgeDetected) {
   //   assertThis(!calibrated || opticalDetectedPulses == DEFAULT_PULSE, "Optical edge detected but not at default pulse. opticalDetectedPulses = " + String(opticalDetectedPulses));  // TODO chais pas pourquoi mais si on lit pas cette valeur dans le debug, ça émet l'erreur alors qu'après vérification elle est pas censée arriver. On pourrait aussi asserter que si currentPulse == DEFAULT_PULSE on doit avoir ou non l'edge à chaque boucle
@@ -466,52 +465,33 @@ void checkForRunningErrors() {
   }
 }
 
-void IRAM_ATTR checkOpticalSensor() {
-  sensorState = digitalRead(OPTICAL_SENSOR_PIN);
+void IRAM_ATTR handleEncoderInterrupt() {
+  encoderInterruptCallCount++;
+  // encoderState = (encoderState << 2) | ((digitalRead(ENCODER_PIN_A) << 1) | digitalRead(ENCODER_PIN_B));
+  // encoderPulses += ENCODER_STATE_TABLE[encoderState & 0b1111];
+  byte pinA = (GPIO_REG_READ(GPIO_IN_ADDRESS) >> ENCODER_PIN_A) & 1;  // Lire PIN_A (Broche D2)
+  byte pinB = (GPIO_REG_READ(GPIO_IN_ADDRESS) >> ENCODER_PIN_B) & 1;  // Lire PIN_B (Broche D3)
+
+  encoderState = ((encoderState << 2) | (pinA << 1) | pinB) & 15;  // Décale et masque les bits
+  encoderPulses += ENCODER_STATE_TABLE[encoderState];              // Mets à jour la position en fonction de l'état de l'encodeur
+
+  // Check if the optical sensor detected an edge
+  //  sensorState = digitalRead(OPTICAL_SENSOR_PIN);
+  sensorState = (GPIO_REG_READ(GPIO_IN_ADDRESS) >> OPTICAL_SENSOR_PIN) & 1;
   if ((DETECTED_STATE == LOW && sensorState == HIGH && lastSensorState == LOW) ||
       (DETECTED_STATE == HIGH && sensorState == LOW && lastSensorState == HIGH)) {
     opticalDetectedEdgesCount++;
-    opticalDetectedPulses = encoderPulses;
+    opticalDetectedPulses = encoderPulses % PULSES_COUNT;
     encoderPulses = DEFAULT_PULSE * ENCODER_DIRECTION_SIGN;
     calibrated = true;
   }
   lastSensorState = sensorState;
-}
 
-void IRAM_ATTR checkTargetReached() {
-  if (currentState == MOVING_TO_TARGET && targetPulses == getCurrentPulses()) {
-    setCurrentState(STOPPED);  // TODO elle est pas en ram celle-là... et la var n'est pas volatile... à voir (et pour les autres var aussi)
+  // currentPulses = (encoderPulses * ENCODER_DIRECTION_SIGN) % PULSES_COUNT;  // TODO travailler qu'avec une var ou utiliser getter getCurrentPulses ? // TODO à voir car on a aussi un getter qui fait modulo... et au lieu de ENCODER_SIGN on peut pas faire simplement x + size double modulo ?
+  // Check if the target is reached
+  if (currentState == MOVING_TO_TARGET && targetPulses == (encoderPulses * ENCODER_DIRECTION_SIGN) % PULSES_COUNT) {
+    currentState = STOPPED;  // TODO elle est pas en ram celle-là... et la var n'est pas volatile... à voir (et pour les autres var aussi)
   }
-}
-
-
-
-void IRAM_ATTR handleEncoderInterruptA() {
-  encoderInterruptCallCount++;
-  if (digitalRead(ENCODER_PIN_A) == digitalRead(ENCODER_PIN_B)) {
-    encoderPulses++;
-    countAinc++;
-  } else {
-    encoderPulses--;
-    countAdec++;
-  }
-  checkOpticalSensor();
-  //currentPulses = (encoderPulses * ENCODER_DIRECTION_SIGN) % PULSES_COUNT;  // TODO travailler qu'avec une var ou utiliser getter getCurrentPulses ? // TODO à voir car on a aussi un getter qui fait modulo... et au lieu de ENCODER_SIGN on peut pas faire simplement x + size double modulo ?
-  checkTargetReached();
-}
-
-void IRAM_ATTR handleEncoderInterruptB() {
-  encoderInterruptCallCount++;
-  if (digitalRead(ENCODER_PIN_A) == digitalRead(ENCODER_PIN_B)) {
-    encoderPulses--;
-    countBdec++;
-  } else {
-    encoderPulses++;
-    countBinc++;
-  }
-  checkOpticalSensor();
-  //currentPulses = (encoderPulses * ENCODER_DIRECTION_SIGN) % PULSES_COUNT;
-  checkTargetReached();
 }
 
 void setup() {
@@ -542,8 +522,8 @@ void setup() {
   // Encoder setup
   pinMode(ENCODER_PIN_A, INPUT_PULLUP);
   pinMode(ENCODER_PIN_B, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(ENCODER_PIN_A), handleEncoderInterruptA, CHANGE);
-  attachInterrupt(digitalPinToInterrupt(ENCODER_PIN_B), handleEncoderInterruptB, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(ENCODER_PIN_A), handleEncoderInterrupt, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(ENCODER_PIN_B), handleEncoderInterrupt, CHANGE);
 }
 
 void loop() {

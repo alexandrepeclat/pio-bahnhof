@@ -1,3 +1,53 @@
+// TODO MECANIQUE :
+//- Inverser capteur optique ? et mettre trou vis supplémentaire ailleurs (je dois faire le trou de toute manière)
+//- Roue optique plus fine
+//- Orientation encodeur (! câble et trous) + voir si trous sont corrects sur le cad
+//- Faciliter l'ajustement de la roue optique
+//   - fixation par le haut ?
+//   - fentes pour voir le trou ?
+//- Aligner fente avec dent car ça coince mieux sur cette position
+//- Permettre de découpler les roues ? dur
+//  - Roue libre à insérer une fois que tout est en place pour permettre de libérer le mécanisme en manuel) ?
+//- Trous de fixation corrects ? l'un était trop étroit
+//- Trou axe roue optique trop petit il semble
+//- Voir comment fixer AXE roue optique + rondelles
+//- Voir comment fixer roue encodeur + rondelles
+//  - Spacer imprimé entre roue et base encodeur ?
+//  - Trou de la roue pas obligé de passer au travers. le bas peut être plein et bloquer pour pas que la roue remonte le shaft
+//  - Rondelle entre roue et plaque métal ?
+//- Prévoir ENCORE plus de place pour pins capteur optique
+//- Espacer les roues imprimées de 0.1-2mm (ou les diminuer de taille) pour avoir une tolérance ?
+
+// TODO SOFTWARE :
+// https://github.com/madhephaestus/ESP32Encoder (complet et avec interruptions)
+// https://github.com/sandy9159/How-to-connect-optical-rotary-encoder-with-Arduino (pas quadrature mais directionnel)
+// TODO ON DOIT tenir compte d'un certain offset pour savoir si on a atteint le target car quand la boucle stoppe le moteur, c'est déjà dépassé de quelques steps
+// - Ou alors voir si on gère le stop dans les interruptions encodeur..... tout est dans les interruptions chais pas trop si c'est bien...
+// - Vu que l'optique sette l'encodeur à zéro, si c'est fait dans sa propre interruption moui (mais il y a des bouces sur font falling aussi), si c'est fait dans les interruptions encodeur ça a encore du sens (on prend le rising edge au moment d'un step d'encodeur)
+// - Vu que lorsqu'on targette on veut s'arrêter dès qu'on a passé un step d'encodeur, ça peut avoir du sens de le faire dans les interruptions encodeur.........
+// TODO ça semble se mettre en veille au bout d'un moment......
+// TODO réorganiser la détection d'erreurs
+// - on a emergencyStop et assertThis un peu interchangeables
+// - on a des checks sur des getters ou à des moments dans la logique du code et dans les fonctions dédiées...
+// - on a souvent besoin des valeurs de la boucle précédente, donc faudrait les mettre à jour dans une fonction dédiée en fin de boucle
+// TODO ? stocker la valeur de l'encodeur dans variable et la remettre à zéro avec l'optique, mais laisser la valeur de l'encodeur originale.
+// - ou plutôt afficher la valeur de l'encodeur brute lors du passage de l'optique
+// - et faire une variable previousPulses pour voir si une boucle ne loupe pas un step
+// - vérifier qu'on a bien atteint le nombre de steps max au moment du passage et afficher un warning sinon
+// TODO s'assurer que tous les "getters" utilisés notamment dans les debug ne change pas les états ou valeurs :-)
+// TODO état ERROR ? en même temps le flag reste nécessaire car il garantit qu'on peut pas setter à nouveau autre chose via transition ou autre... mais la boucle continue de tourner et calculer des trucs pour rien...
+// TODO Vérifier les valeurs passées depuis l'api un peu mieux en terme de limites et type
+// TODO go to rising/falling edges via API ?
+// TODO garder les N derniers messages (erreur ou warning...)
+// TODO API avec commandes plus poussées sur même endpoint ? par ex pour aider à définir les offsets
+// - positionner par incréments de steps le panneau 0 à son tout début
+// - lancer moteur jusqu'à l'optique et récupérer la valeur de l'encodeur à ce moment
+// - calculer la pulse courante (attention au sens) et les constantes DEFAULT...
+// - en tenant compte de l'offset et en remettant l'encodeur à 0 on obtient le panel courant et on peut vérifier si c'est OK
+// TODO API pour donner la liste des villes ? Dépend du matos après-tout par contre on va pas fournir les traductions pour la reconnaissance vocale ?
+
+
+
 /*
 
 KY-040 Rotary Encoder with Servo Motor
