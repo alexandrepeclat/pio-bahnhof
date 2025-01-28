@@ -1,57 +1,8 @@
 #include <ESP8266WebServer.h>
 #include <ESP8266WiFi.h>
-// #include <Encoder.h>  // Remove this line
 #include <Servo.h>
 #include <secrets.h>
 #include <map>
-
-// TODO MECANIQUE :
-//- Inverser capteur optique ? et mettre trou vis supplémentaire ailleurs (je dois faire le trou de toute manière)
-//- Roue optique plus fine
-//- Orientation encodeur (! câble et trous) + voir si trous sont corrects sur le cad
-//- Faciliter l'ajustement de la roue optique
-//   - fixation par le haut ?
-//   - fentes pour voir le trou ?
-//- Aligner fente avec dent car ça coince mieux sur cette position
-//- Permettre de découpler les roues ? dur
-//  - Roue libre à insérer une fois que tout est en place pour permettre de libérer le mécanisme en manuel) ?
-//- Trous de fixation corrects ? l'un était trop étroit
-//- Trou axe roue optique trop petit il semble
-//- Voir comment fixer AXE roue optique + rondelles
-//- Voir comment fixer roue encodeur + rondelles
-//  - Spacer imprimé entre roue et base encodeur ?
-//  - Trou de la roue pas obligé de passer au travers. le bas peut être plein et bloquer pour pas que la roue remonte le shaft
-//  - Rondelle entre roue et plaque métal ?
-//- Prévoir ENCORE plus de place pour pins capteur optique
-//- Espacer les roues imprimées de 0.1-2mm (ou les diminuer de taille) pour avoir une tolérance ?
-
-// TODO SOFTWARE :
-// https://github.com/madhephaestus/ESP32Encoder (complet et avec interruptions)
-// https://github.com/sandy9159/How-to-connect-optical-rotary-encoder-with-Arduino (pas quadrature mais directionnel)
-// TODO ON DOIT tenir compte d'un certain offset pour savoir si on a atteint le target car quand la boucle stoppe le moteur, c'est déjà dépassé de quelques steps
-// - Ou alors voir si on gère le stop dans les interruptions encodeur..... tout est dans les interruptions chais pas trop si c'est bien...
-// - Vu que l'optique sette l'encodeur à zéro, si c'est fait dans sa propre interruption moui (mais il y a des bouces sur font falling aussi), si c'est fait dans les interruptions encodeur ça a encore du sens (on prend le rising edge au moment d'un step d'encodeur)
-// - Vu que lorsqu'on targette on veut s'arrêter dès qu'on a passé un step d'encodeur, ça peut avoir du sens de le faire dans les interruptions encodeur.........
-// TODO ça semble se mettre en veille au bout d'un moment......
-// TODO réorganiser la détection d'erreurs
-// - on a emergencyStop et assertThis un peu interchangeables
-// - on a des checks sur des getters ou à des moments dans la logique du code et dans les fonctions dédiées...
-// - on a souvent besoin des valeurs de la boucle précédente, donc faudrait les mettre à jour dans une fonction dédiée en fin de boucle
-// TODO ? stocker la valeur de l'encodeur dans variable et la remettre à zéro avec l'optique, mais laisser la valeur de l'encodeur originale.
-// - ou plutôt afficher la valeur de l'encodeur brute lors du passage de l'optique
-// - et faire une variable previousPulses pour voir si une boucle ne loupe pas un step
-// - vérifier qu'on a bien atteint le nombre de steps max au moment du passage et afficher un warning sinon
-// TODO s'assurer que tous les "getters" utilisés notamment dans les debug ne change pas les états ou valeurs :-)
-// TODO état ERROR ? en même temps le flag reste nécessaire car il garantit qu'on peut pas setter à nouveau autre chose via transition ou autre... mais la boucle continue de tourner et calculer des trucs pour rien...
-// TODO Vérifier les valeurs passées depuis l'api un peu mieux en terme de limites et type
-// TODO go to rising/falling edges via API ?
-// TODO garder les N derniers messages (erreur ou warning...)
-// TODO API avec commandes plus poussées sur même endpoint ? par ex pour aider à définir les offsets
-// - positionner par incréments de steps le panneau 0 à son tout début
-// - lancer moteur jusqu'à l'optique et récupérer la valeur de l'encodeur à ce moment
-// - calculer la pulse courante (attention au sens) et les constantes DEFAULT...
-// - en tenant compte de l'offset et en remettant l'encodeur à 0 on obtient le panel courant et on peut vérifier si c'est OK
-// TODO API pour donner la liste des villes ? Dépend du matos après-tout par contre on va pas fournir les traductions pour la reconnaissance vocale ?
 
 enum AppState {
   EMERGENCY_STOPPED,
@@ -96,7 +47,7 @@ void assertThis(bool condition, T&& message) {
 
 // Constants
 const int PANELS_COUNT = 62;                               // Nombre total de panneaux
-const int PULSES_PER_PANEL = 36;                           // Ajuste pour 4 impulsions par panneau
+const int PULSES_PER_PANEL = 36 / 2;                       // Ajuste pour 4 impulsions par panneau
 const int PULSES_COUNT = PANELS_COUNT * PULSES_PER_PANEL;  // Nombre total d'impulsions (2232 par tour de panel. Encodeur tourne 1.55x plus vite que panels, 2232/1.55 = 1440 pulses par tour d'encodeur = 360 steps)
 const int DEFAULT_PANEL = 9;                               // 9;                              // Panel at optical sensor position
 const int DEFAULT_PANEL_PULSE_OFFSET = 1;                  // 1;                  // Optical sensor is detected at nth pulse of the default panel //TODO Directement calculer un DEFAULT_PULSE via les deux variables et faire en sorte que ce soit dans les limites [0-PULSES_TOTAL]
@@ -111,7 +62,7 @@ const int OPTICAL_DETECTED_EDGE = RISING;  // Capteur à 1 quand coupé / 0 quan
 // Servo configuration
 Servo servo;
 const int STOP_SPEED = 90;  // Valeur pour arrêter le servo
-const int RUN_SPEED = 120;  // Vitesse du servo pour avancer (91-180) 140 c'est bien (met 6 secondes à faire un tour)
+const int RUN_SPEED = 140;  // Vitesse du servo pour avancer (91-180) 140 c'est bien (met 6 secondes à faire un tour)
 static_assert(RUN_SPEED > 90, "RUN_SPEED must be greater than 90 or everything will break !");
 
 // Globals
@@ -239,79 +190,117 @@ void sendHeaders() {
   server.sendHeader("Access-Control-Allow-Origin", "*");
 }
 
+String doGetDebug() {
+  return buildDebugJson("Debug request");
+}
+
 void handleGetDebug() {
   sendHeaders();
-  server.send(200, "text/plain", buildDebugJson("Debug request"));
+  server.send(200, "text/plain", doGetDebug());
+}
+
+int doGetCurrentPanel() {
+  return getCurrentPanel();
 }
 
 void handleGetCurrentPanel() {
   sendHeaders();
-  server.send(200, "text/plain", String(getCurrentPanel()));
+  server.send(200, "text/plain", String(doGetCurrentPanel()));
+}
+
+String doMoveToPanel(int panel) {
+  panel %= PANELS_COUNT;  // Ensure target is within bounds
+  setTargetPanel(panel);
+  setCurrentState(MOVING_TO_TARGET);
+  return "Moving to panel " + String(getTargetPanel());
 }
 
 void handleMoveToPanel() {
   sendHeaders();
   if (server.hasArg("panel")) {
     int panel = server.arg("panel").toInt();
-    panel %= PANELS_COUNT;  // Ensure target is within bounds
-    setTargetPanel(panel);
-    setCurrentState(MOVING_TO_TARGET);
-    server.send(200, "text/plain", buildDebugJson("Moving to panel " + String(getTargetPanel())));
+    String message = doMoveToPanel(panel);
+    server.send(200, "text/plain", buildDebugJson(message));
   } else {
     server.send(400, "text/plain", "Missing 'panel' argument");
   }
 }
 
+String doAdvancePanels(int count) {
+  int currentPanel = getCurrentPanel();
+  setTargetPanel((currentPanel + count) % PANELS_COUNT);
+  setCurrentState(MOVING_TO_TARGET);
+  return "From " + String(currentPanel) + ", Advancing " + String(count) + " panels to " + String(getTargetPanel());
+}
+
 void handleAdvancePanels() {
   sendHeaders();
   if (server.hasArg("count")) {
-    int advanceCount = server.arg("count").toInt();
-    int currentPanel = getCurrentPanel();
-    setTargetPanel((currentPanel + advanceCount) % PANELS_COUNT);
-    setCurrentState(MOVING_TO_TARGET);
-    server.send(200, "text/plain", buildDebugJson("From " + String(currentPanel) + ", Advancing " + String(advanceCount) + " panels to " + String(getTargetPanel())));
+    int count = server.arg("count").toInt();
+    String message = doAdvancePanels(count);
+    server.send(200, "text/plain", buildDebugJson(message));
   } else {
     server.send(400, "text/plain", "Missing 'count' argument");
   }
+}
+
+String doAdvancePulses(int pulseCount) {
+  int currentPulses = getCurrentPulses();
+  setTargetPulses((currentPulses + pulseCount) % PULSES_COUNT);
+  setCurrentState(MOVING_TO_TARGET);
+  return "Advancing " + String(pulseCount) + " pulses to " + String(targetPulses);
 }
 
 void handleAdvancePulses() {
   sendHeaders();
   if (server.hasArg("count")) {
     int pulseCount = server.arg("count").toInt();
-    int currentPulses = getCurrentPulses();
-    setTargetPulses((currentPulses + pulseCount) % PULSES_COUNT);
-    setCurrentState(MOVING_TO_TARGET);
-    server.send(200, "text/plain", buildDebugJson("Advancing " + String(pulseCount) + " pulses to " + String(targetPulses)));
+    String message = doAdvancePulses(pulseCount);
+    server.send(200, "text/plain", buildDebugJson(message));
   } else {
     server.send(400, "text/plain", "Missing 'count' argument");
   }
 }
 
-void handleCalibrate() {
-  sendHeaders();
+String doCalibrate() {
   setCurrentState(CALIBRATING);  // Set motor mode for calibration
   calibrated = false;
-  server.send(200, "text/plain", buildDebugJson("Calibration started. Rotating until optical sensor edge is detected."));
+  return "Calibration started. Rotating until optical sensor edge is detected.";
 }
 
-void handleStop() {
+void handleCalibrate() {
   sendHeaders();
+  String message = doCalibrate();
+  server.send(200, "text/plain", buildDebugJson(message));
+}
+
+String doStop() {
   setMotorSpeed(0);          // Use the centralized function to stop the motor
   setCurrentState(STOPPED);  // Set motor mode to stopped
   int currentPanel = getCurrentPanel();
   setTargetPanel(currentPanel);
-  server.send(200, "text/plain", buildDebugJson("Stopped. Current panel set to " + String(currentPanel)));
+  return "Stopped. Current panel set to " + String(currentPanel);
 }
 
-void handleReset() {
+void handleStop() {
   sendHeaders();
+  String message = doStop();
+  server.send(200, "text/plain", buildDebugJson(message));
+}
+
+String doReset() {
   setMotorSpeed(0);  // Stop the motor
   calibrated = false;
   errorFlag = false;
   errorMessage = "";
   setCurrentState(STOPPED);
-  server.send(200, "text/plain", buildDebugJson("Reset"));
+  return "Reset";
+}
+
+void handleReset() {
+  sendHeaders();
+  String message = doReset();
+  server.send(200, "text/plain", buildDebugJson(message));
 }
 
 int getRemainingPulses() {
@@ -325,9 +314,9 @@ bool isTargetPanelReached() {
 
 float calculateSpeedCalibration() {
   if (OPTICAL_DETECTED_EDGE == RISING) {
-    return sensorState == LOW ? 0.3f : 1.0f;  // Half speed when we are about to detect the 2nd edge
+    return sensorState == LOW ? 0.3f : 0.6f;  // Half speed when we are about to detect the 2nd edge
   } else {
-    return sensorState == HIGH ? 0.5f : 1.0f;
+    return sensorState == HIGH ? 0.3f : 0.6f;
   }
 }
 
@@ -467,13 +456,19 @@ void checkForRunningErrors() {
 
 void IRAM_ATTR handleEncoderInterrupt() {
   encoderInterruptCallCount++;
-  // encoderState = (encoderState << 2) | ((digitalRead(ENCODER_PIN_A) << 1) | digitalRead(ENCODER_PIN_B));
-  // encoderPulses += ENCODER_STATE_TABLE[encoderState & 0b1111];
   byte pinA = (GPIO_REG_READ(GPIO_IN_ADDRESS) >> ENCODER_PIN_A) & 1;  // Lire PIN_A (Broche D2)
   byte pinB = (GPIO_REG_READ(GPIO_IN_ADDRESS) >> ENCODER_PIN_B) & 1;  // Lire PIN_B (Broche D3)
 
-  encoderState = ((encoderState << 2) | (pinA << 1) | pinB) & 15;  // Décale et masque les bits
-  encoderPulses += ENCODER_STATE_TABLE[encoderState];              // Mets à jour la position en fonction de l'état de l'encodeur
+  //Solution via table d'état (nécessite 2 interruptions A et B sur CHANGE et 36 pulses par panel)
+  // encoderState = ((encoderState << 2) | (pinA << 1) | pinB) & 15;  // Décale et masque les bits
+  // encoderPulses += ENCODER_STATE_TABLE[encoderState];              // Mets à jour la position en fonction de l'état de l'encodeur
+
+  //Solution via comparaison (nécessite 1 interruption A sur CHANGE et 36/2 pulses par panel)
+  if ((pinA == HIGH) != (pinB == LOW)) {
+    encoderPulses++;
+  } else {
+    encoderPulses--;
+  }
 
   // Check if the optical sensor detected an edge
   //  sensorState = digitalRead(OPTICAL_SENSOR_PIN);
@@ -494,10 +489,57 @@ void IRAM_ATTR handleEncoderInterrupt() {
   }
 }
 
+void handleSerialCommand(String command) {
+  if (command == "stop") {
+    String response = doStop();
+    Serial.println(response);
+  } else if (command == "reset") {
+    String response = doReset();
+    Serial.println(response);
+  } else if (command == "calibrate") {
+    String response = doCalibrate();
+    Serial.println(response);
+  } else if (command.startsWith("moveToPanel")) {
+    int panel = command.substring(command.indexOf(' ') + 1).toInt();
+    String response = doMoveToPanel(panel);
+    Serial.println(response);
+  } else if (command.startsWith("advancePanels")) {
+    int count = command.substring(command.indexOf(' ') + 1).toInt();
+    String response = doAdvancePanels(count);
+    Serial.println(response);
+  } else if (command.startsWith("advancePulses")) {
+    int pulseCount = command.substring(command.indexOf(' ') + 1).toInt();
+    String response = doAdvancePulses(pulseCount);
+    Serial.println(response);
+  } else if (command == "debug") {
+    String response = doGetDebug();
+    Serial.println(response);
+  } else if (command == "currentPanel") {
+    int panel = doGetCurrentPanel();
+    Serial.println("Current panel: " + String(panel));
+  } else {
+    Serial.println("Unknown command: -" + command + "-");
+  }
+}
+
+String command = ""; // Variable pour stocker la commande reçue
+
+void readSerial() {
+  if (Serial.available() > 0) {
+     String incomingChar = Serial.readString(); // Lire un caractère
+    if (incomingChar.endsWith("\n")) {
+      handleSerialCommand(command); // Traiter la commande complète
+      command = "";            // Réinitialiser pour la prochaine commande
+    } else {
+      command += incomingChar; // Ajouter le caractère à la commande
+    }
+  }
+}
+
 void setup() {
   assert(!WiFi.getPersistent());
   Serial.begin(115200);
-  connectToWiFi();
+  Serial.setTimeout(10);
 
   // REST API routes
   server.on("/panel", HTTP_GET, handleGetCurrentPanel);  // TODO renommer en virant les gets et les mots panel des actions
@@ -523,18 +565,19 @@ void setup() {
   pinMode(ENCODER_PIN_A, INPUT_PULLUP);
   pinMode(ENCODER_PIN_B, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(ENCODER_PIN_A), handleEncoderInterrupt, CHANGE);
-  attachInterrupt(digitalPinToInterrupt(ENCODER_PIN_B), handleEncoderInterrupt, CHANGE);
+  // attachInterrupt(digitalPinToInterrupt(ENCODER_PIN_B), handleEncoderInterrupt, CHANGE);
 }
 
 void loop() {
-  server.handleClient();  // Handle incoming HTTP requests
-  connectToWiFi();        // Keep it alive
+  //server.handleClient();  // Handle incoming HTTP requests
+  //connectToWiFi();        // Keep it alive
   loopMillis = millis();
-  delay(2);
+  delay(1);
   readSensors();  // Read sensors and handle edge detection
   evaluateStateTransitions();
   processStateActions();
   checkForRunningErrors();  // Check for blockages anc co
+  readSerial();  // Read and handle serial commands
 
 #ifdef DEBUG_ENABLED
   serialPrintThrottled("ALL", buildDebugJson(""));
