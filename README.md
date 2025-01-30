@@ -72,6 +72,8 @@ Rapport : 3:1
 
  */
 
+
+# V1-2-3 
 Roue panneaux
 - 62 panneaux
 - 48 dents -> 48
@@ -85,9 +87,29 @@ Roue encodeur :
 - 40 dents <- 62
 
 1 dent des panneaux = 1 dent encodeur
-1 panneau = NPLUSES/40 impulsions
-1 panneau = 600/40 = 15 impulsions
-1 panneau = 360/40 = 9 impulsions
+1 panneau = NPLUSES/40 = 360/40 = 9 impulsions
+1 tour panneaux / tour encodeur = 62/40 = 1.0333 tour encodeur / tour panneaux
+https://geargenerator.com/beta/#Tdy5@vg5ZvUBcv0QPm0APA5kUacGfBcXk6K7vYVOVbX2$fiup3W95Wy1BaSdYn3EiEUjFSPDvQ5
+
+# V4 
+Roue panneaux
+- 62 panneaux
+- 48 dents -> 48
+
+Roue optique + changement rapport encodeur : 
+- 1x slot
+- 62 dents -> 60
+- 48 dents <- 48
+
+Roue encodeur : 
+- 60 dents <- 62
+
+1 dent des panneaux = 1 dent encodeur
+1 panneau = NPLUSES/60 = 360/60 = 6 impulsions
+1 tour panneaux / tour encodeur = 62/60 = 1.0333 tour encodeur / tour panneaux
+https://geargenerator.com/beta/#ycejT3Oju3chC3vxoKvFoDYolAE8lBbF@FFRGxYK7cW@KgHdCdXMSvvYNALu9OcwXeZrFrNYvp1
+
+
 Note : 
 - le nb d'impulsions doit être entier, c'est pour ça qu'on a entre les panneaux (via roue optique) et l'encodeur des rapports propres à l'élément connecté : 
   - 62 dents pour les panneaux (diviseur de 62, mais pourrait être 31, 124...)
