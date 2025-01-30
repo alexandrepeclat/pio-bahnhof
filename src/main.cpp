@@ -46,10 +46,15 @@ void assertThis(bool condition, T&& message) {
 #define OPTICAL_SENSOR_PIN D6  // Pin pour le capteur optique
 
 // Constants
-const int PANELS_COUNT = 62;                               // Nombre total de panneaux
-const int PULSES_PER_PANEL = 36 / 2;                       // Ajuste pour 4 impulsions par panneau
+const int ENCODER_RESOLUTION = 360;
+const int ENCODER_GEAR_TEETH = 60;
+const int ENCODER_PULSES_PER_STEP = 4; //Quadrature
+const int PANEL_TO_ENCODER_TEETH = 62; //TODO incorporer dans la formule de PULSES_PER_PANEL
+
+const int PANELS_COUNT = 62;                              
+const int PULSES_PER_PANEL = ENCODER_RESOLUTION / ENCODER_GEAR_TEETH * ENCODER_PULSES_PER_STEP; 
 const int PULSES_COUNT = PANELS_COUNT * PULSES_PER_PANEL;  // Nombre total d'impulsions (2232 par tour de panel. Encodeur tourne 1.55x plus vite que panels, 2232/1.55 = 1440 pulses par tour d'encodeur = 360 steps)
-const int DEFAULT_PANEL = 9;                               // 9;                              // Panel at optical sensor position
+const int DEFAULT_PANEL = 12;                               // 9;                              // Panel at optical sensor position
 const int DEFAULT_PANEL_PULSE_OFFSET = 1;                  // 1;                  // Optical sensor is detected at nth pulse of the default panel //TODO Directement calculer un DEFAULT_PULSE via les deux variables et faire en sorte que ce soit dans les limites [0-PULSES_TOTAL]
 const int DEFAULT_PULSE = (DEFAULT_PANEL * PULSES_PER_PANEL) + DEFAULT_PANEL_PULSE_OFFSET;
 static_assert(DEFAULT_PULSE >= 0 && DEFAULT_PULSE < PULSES_COUNT, "DEFAULT_PULSE must be in range [0-PULSES_COUNT]");
@@ -84,6 +89,7 @@ volatile int opticalDetectedPulses = 0;
 volatile int opticalDetectedEdgesCount = 0;
 volatile int encoderInterruptCallCount = 0;
 volatile int encoderPulses = 0;  // New variable to store encoder pulses
+volatile int encoderPulsesRaw = 0;
 
 // Encoder state table for natural debouncing
 // const int8_t ENCODER_STATE_TABLE[16] = {0, -1, 1, 0, 1, 0, 0, -1, -1, 0, 0, 1, 0, 1, -1, 0};
@@ -142,6 +148,7 @@ String buildDebugJson(String message) {
                ",\"odPulses\":" + String(opticalDetectedPulses) +
                ",\"odCount\":" + String(opticalDetectedEdgesCount) +
                ",\"encPulses\":" + String(encoderPulses) +
+               ",\"encPulsesRaw\":" + String(encoderPulsesRaw) +
                ",\"encInt\":" + String(encoderInterruptCallCount) +
                ",\"calibrated\":" + String(calibrated) +
                ",\"dist\":" + String(getRemainingPulses()) +
@@ -460,15 +467,18 @@ void IRAM_ATTR handleEncoderInterrupt() {
   byte pinB = (GPIO_REG_READ(GPIO_IN_ADDRESS) >> ENCODER_PIN_B) & 1;  // Lire PIN_B (Broche D3)
 
   //Solution via table d'état (nécessite 2 interruptions A et B sur CHANGE et 36 pulses par panel)
-  // encoderState = ((encoderState << 2) | (pinA << 1) | pinB) & 15;  // Décale et masque les bits
-  // encoderPulses += ENCODER_STATE_TABLE[encoderState];              // Mets à jour la position en fonction de l'état de l'encodeur
-
+  encoderState = ((encoderState << 2) | (pinA << 1) | pinB) & 15;  // Décale et masque les bits
+  int8_t pulseInc = ENCODER_STATE_TABLE[encoderState];
+  encoderPulses += pulseInc;              // Mets à jour la position en fonction de l'état de l'encodeur
+  encoderPulsesRaw += pulseInc;           // Mets à jour la position en fonction de l'état de l'encodeur
   //Solution via comparaison (nécessite 1 interruption A sur CHANGE et 36/2 pulses par panel)
-  if ((pinA == HIGH) != (pinB == LOW)) {
-    encoderPulses++;
-  } else {
-    encoderPulses--;
-  }
+  // if ((pinA == HIGH) != (pinB == LOW)) {
+  //   encoderPulses++;
+  // } else {
+  //   encoderPulses--;
+  // }
+  if (pulseInc < 1)
+    return;
 
   // Check if the optical sensor detected an edge
   //  sensorState = digitalRead(OPTICAL_SENSOR_PIN);
@@ -478,6 +488,7 @@ void IRAM_ATTR handleEncoderInterrupt() {
     opticalDetectedEdgesCount++;
     opticalDetectedPulses = encoderPulses % PULSES_COUNT;
     encoderPulses = DEFAULT_PULSE * ENCODER_DIRECTION_SIGN;
+    encoderPulsesRaw = 0;
     calibrated = true;
   }
   lastSensorState = sensorState;
@@ -565,12 +576,12 @@ void setup() {
   pinMode(ENCODER_PIN_A, INPUT_PULLUP);
   pinMode(ENCODER_PIN_B, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(ENCODER_PIN_A), handleEncoderInterrupt, CHANGE);
-  // attachInterrupt(digitalPinToInterrupt(ENCODER_PIN_B), handleEncoderInterrupt, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(ENCODER_PIN_B), handleEncoderInterrupt, CHANGE);
 }
 
 void loop() {
-  //server.handleClient();  // Handle incoming HTTP requests
-  //connectToWiFi();        // Keep it alive
+  server.handleClient();  // Handle incoming HTTP requests
+  connectToWiFi();        // Keep it alive
   loopMillis = millis();
   delay(1);
   readSensors();  // Read sensors and handle edge detection

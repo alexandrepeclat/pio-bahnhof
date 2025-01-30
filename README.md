@@ -50,8 +50,13 @@
 
 /*
 
-KY-040 Rotary Encoder with Servo Motor
-MG996R Servo Motor with continuous rotation
+Shitty issues: 
+- Optical encoder 38s6g5 needs >= 5V https://forum.arduino.cc/t/fyi-interfacing-e38s6g5-600b-g24n-600p-r-rotary-encoder/1057892
+
+38s6g5 Optical Encoder (5 - 24 V)
+KY-040 Rotary Encoder 
+MG996R Servo Motor with continuous rotation (4.8 - 6.6 V)
+KY-010 Optical sensor (3.3 - 5 V)
 
 1 impulsion par panneau (quadrature) :
 Roue des panneaux : 24 mm, 48 dents
