@@ -38,14 +38,15 @@
 // TODO état ERROR ? en même temps le flag reste nécessaire car il garantit qu'on peut pas setter à nouveau autre chose via transition ou autre... mais la boucle continue de tourner et calculer des trucs pour rien...
 // TODO Vérifier les valeurs passées depuis l'api un peu mieux en terme de limites et type
 // TODO go to rising/falling edges via API ?
-// TODO garder les N derniers messages (erreur ou warning...)
 // TODO API avec commandes plus poussées sur même endpoint ? par ex pour aider à définir les offsets
 // - positionner par incréments de steps le panneau 0 à son tout début
 // - lancer moteur jusqu'à l'optique et récupérer la valeur de l'encodeur à ce moment
 // - calculer la pulse courante (attention au sens) et les constantes DEFAULT...
 // - en tenant compte de l'offset et en remettant l'encodeur à 0 on obtient le panel courant et on peut vérifier si c'est OK
 // TODO API pour donner la liste des villes ? Dépend du matos après-tout par contre on va pas fournir les traductions pour la reconnaissance vocale ?
-
+// TODO API pour donner la liste des commandes possibles ?
+// TODO Commande pour lister les commandes possibles ?
+// TODO Refactorer selon un pattern "Command" ? on a une interface qui impose de retourner un nom (pour route et commande), une méthode d'exécution, une méthode de décodage (voire exécution) de l'appel rest, une méthode de décodage (et validation, voire exécution) de l'appel sérial. ça mixe un peu la logique REST/Serial/action mais plus extensible
 
 
 /*
