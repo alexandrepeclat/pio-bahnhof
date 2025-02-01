@@ -71,11 +71,11 @@ const int RUN_SPEED = 140;  // Vitesse du servo pour avancer (91-180) 140 c'est 
 static_assert(RUN_SPEED > 90, "RUN_SPEED must be greater than 90 or everything will break !");
 
 // Globals
+String command = "";  // Current serial command
 unsigned long loopMillis = 0;
 unsigned long lastLoopMillis = 0;  // Variable to store the last loop time
 ESP8266WebServer server(80);
 int targetPanel = 0;  // Panneau cible //TODO utiliser un targetPulses et virer quasi tous les appels get/setPanel sauf depuis l'api ou les debug
-// volatile int currentPulses = 0;  // Variable to store the encoder value
 volatile bool sensorState = LOW;
 bool errorFlag = false;    // Emergency stop flag
 String errorMessage = "";  // Emergency stop message
@@ -88,11 +88,10 @@ const unsigned long BLOCKAGE_TIMEOUT = 500;  // Timeout in milliseconds to detec
 volatile int opticalDetectedPulses = 0;
 volatile int opticalDetectedEdgesCount = 0;
 volatile int encoderInterruptCallCount = 0;
+volatile uint8_t encoderState = 0;
 volatile int encoderPulses = 0; 
 volatile int encoderPulsesRaw = 0;
 const int8_t ENCODER_STATE_TABLE[16] = {0, 1, -1, -0, -1, 0, -0, 1, 1, -0, 0, -1, -0, -1, 1, 0}; // Encoder state table for natural debouncing
-
-volatile uint8_t encoderState = 0;
 
 #ifdef DEBUG_ENABLED
 std::map<String, String> lastDebugMessages;  // Map to store the last debug messages
@@ -508,8 +507,6 @@ void handleSerialCommand(String command) {
     Serial.println("Unknown command: -" + command + "-");
   }
 }
-
-String command = "";  // Variable pour stocker la commande reçue
 
 void readSerial() {
   if (Serial.available() > 0) {
