@@ -48,13 +48,13 @@ void assertThis(bool condition, T&& message) {
 // Constants
 const int ENCODER_RESOLUTION = 360;
 const int ENCODER_GEAR_TEETH = 60;
-const int ENCODER_PULSES_PER_STEP = 4; //Quadrature
-const int PANEL_TO_ENCODER_TEETH = 62; //TODO incorporer dans la formule de PULSES_PER_PANEL
+const int ENCODER_PULSES_PER_STEP = 4;  // Quadrature
+const int PANEL_TO_ENCODER_TEETH = 62;  // TODO incorporer dans la formule de PULSES_PER_PANEL
 
-const int PANELS_COUNT = 62;                              
-const int PULSES_PER_PANEL = ENCODER_RESOLUTION / ENCODER_GEAR_TEETH * ENCODER_PULSES_PER_STEP; 
+const int PANELS_COUNT = 62;
+const int PULSES_PER_PANEL = ENCODER_RESOLUTION / ENCODER_GEAR_TEETH * ENCODER_PULSES_PER_STEP;
 const int PULSES_COUNT = PANELS_COUNT * PULSES_PER_PANEL;  // Nombre total d'impulsions (2232 par tour de panel. Encodeur tourne 1.55x plus vite que panels, 2232/1.55 = 1440 pulses par tour d'encodeur = 360 steps)
-const int DEFAULT_PANEL = 12;                               // 9;                              // Panel at optical sensor position
+const int DEFAULT_PANEL = 12;                              // 9;                              // Panel at optical sensor position
 const int DEFAULT_PANEL_PULSE_OFFSET = 1;                  // 1;                  // Optical sensor is detected at nth pulse of the default panel //TODO Directement calculer un DEFAULT_PULSE via les deux variables et faire en sorte que ce soit dans les limites [0-PULSES_TOTAL]
 const int DEFAULT_PULSE = (DEFAULT_PANEL * PULSES_PER_PANEL) + DEFAULT_PANEL_PULSE_OFFSET;
 static_assert(DEFAULT_PULSE >= 0 && DEFAULT_PULSE < PULSES_COUNT, "DEFAULT_PULSE must be in range [0-PULSES_COUNT]");
@@ -463,20 +463,13 @@ void checkForRunningErrors() {
 
 void IRAM_ATTR handleEncoderInterrupt() {
   encoderInterruptCallCount++;
-  byte pinA = (GPIO_REG_READ(GPIO_IN_ADDRESS) >> ENCODER_PIN_A) & 1;  // Lire PIN_A (Broche D2)
-  byte pinB = (GPIO_REG_READ(GPIO_IN_ADDRESS) >> ENCODER_PIN_B) & 1;  // Lire PIN_B (Broche D3)
-
-  //Solution via table d'état (nécessite 2 interruptions A et B sur CHANGE et 36 pulses par panel)
+  byte pinA = (GPIO_REG_READ(GPIO_IN_ADDRESS) >> ENCODER_PIN_A) & 1;
+  byte pinB = (GPIO_REG_READ(GPIO_IN_ADDRESS) >> ENCODER_PIN_B) & 1;
   encoderState = ((encoderState << 2) | (pinA << 1) | pinB) & 15;  // Décale et masque les bits
   int8_t pulseInc = ENCODER_STATE_TABLE[encoderState];
-  encoderPulses += pulseInc;              // Mets à jour la position en fonction de l'état de l'encodeur
-  encoderPulsesRaw += pulseInc;           // Mets à jour la position en fonction de l'état de l'encodeur
-  //Solution via comparaison (nécessite 1 interruption A sur CHANGE et 36/2 pulses par panel)
-  // if ((pinA == HIGH) != (pinB == LOW)) {
-  //   encoderPulses++;
-  // } else {
-  //   encoderPulses--;
-  // }
+  encoderPulses += pulseInc;
+  encoderPulsesRaw += pulseInc;
+
   if (pulseInc < 1)
     return;
 
@@ -493,10 +486,9 @@ void IRAM_ATTR handleEncoderInterrupt() {
   }
   lastSensorState = sensorState;
 
-  // currentPulses = (encoderPulses * ENCODER_DIRECTION_SIGN) % PULSES_COUNT;  // TODO travailler qu'avec une var ou utiliser getter getCurrentPulses ? // TODO à voir car on a aussi un getter qui fait modulo... et au lieu de ENCODER_SIGN on peut pas faire simplement x + size double modulo ?
   // Check if the target is reached
   if (currentState == MOVING_TO_TARGET && targetPulses == (encoderPulses * ENCODER_DIRECTION_SIGN) % PULSES_COUNT) {
-    currentState = STOPPED;  // TODO elle est pas en ram celle-là... et la var n'est pas volatile... à voir (et pour les autres var aussi)
+    currentState = STOPPED;
   }
 }
 
@@ -533,16 +525,16 @@ void handleSerialCommand(String command) {
   }
 }
 
-String command = ""; // Variable pour stocker la commande reçue
+String command = "";  // Variable pour stocker la commande reçue
 
 void readSerial() {
   if (Serial.available() > 0) {
-     String incomingChar = Serial.readString(); // Lire un caractère
+    String incomingChar = Serial.readString();  // Lire un caractère
     if (incomingChar.endsWith("\n")) {
-      handleSerialCommand(command); // Traiter la commande complète
-      command = "";            // Réinitialiser pour la prochaine commande
+      handleSerialCommand(command);  // Traiter la commande complète
+      command = "";                  // Réinitialiser pour la prochaine commande
     } else {
-      command += incomingChar; // Ajouter le caractère à la commande
+      command += incomingChar;  // Ajouter le caractère à la commande
     }
   }
 }
@@ -588,7 +580,7 @@ void loop() {
   evaluateStateTransitions();
   processStateActions();
   checkForRunningErrors();  // Check for blockages anc co
-  readSerial();  // Read and handle serial commands
+  readSerial();             // Read and handle serial commands
 
 #ifdef DEBUG_ENABLED
   serialPrintThrottled("ALL", buildDebugJson(""));
