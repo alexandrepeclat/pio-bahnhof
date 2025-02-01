@@ -398,18 +398,7 @@ void processStateActions() {
 }
 
 void readSensors() {
-  // Read encoder value, reset if edge was detected
-  // currentPulses = (encoderPulses * ENCODER_DIRECTION_SIGN) % PULSES_COUNT;
   sensorState = digitalRead(OPTICAL_SENSOR_PIN);
-
-  // if (isOpticalEdgeDetected) {
-  //   assertThis(!calibrated || opticalDetectedPulses == DEFAULT_PULSE, "Optical edge detected but not at default pulse. opticalDetectedPulses = " + String(opticalDetectedPulses));  // TODO chais pas pourquoi mais si on lit pas cette valeur dans le debug, ça émet l'erreur alors qu'après vérification elle est pas censée arriver. On pourrait aussi asserter que si currentPulse == DEFAULT_PULSE on doit avoir ou non l'edge à chaque boucle
-  //   calibrated = true;
-  // }
-
-  // TODO c'est faux, mais dans l'idée, faudrait détecter les deux cas via un code assez compact
-  //  assertThis(!calibrated || isOpticalEdgeDetected && getCurrentPulses() == DEFAULT_PULSE, "Optical edge detected, but not at default pulse. currentPulses = " + String(getCurrentPulses()));
-  //  assertThis(!calibrated || !isOpticalEdgeDetected && getCurrentPulses() != DEFAULT_PULSE, "Optical edge not detected at default pulse. currentPulses = " + String(getCurrentPulses()));
 }
 
 void connectToWiFi() {
@@ -600,3 +589,6 @@ void setMotorSpeed(float normalizedSpeed) {
   int speed = map(normalizedSpeed * 100, 0, 100, STOP_SPEED, RUN_SPEED);
   servo.write(speed);
 }
+
+
+
