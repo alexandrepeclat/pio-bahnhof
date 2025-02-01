@@ -3,6 +3,7 @@
 #include <Servo.h>
 #include <secrets.h>
 #include <map>
+#include <vector>
 
 enum AppState {
   EMERGENCY_STOPPED,
@@ -48,13 +49,13 @@ void assertThis(bool condition, T&& message) {
 // Constants
 const int ENCODER_RESOLUTION = 360;
 const int ENCODER_GEAR_TEETH = 60;
-const int ENCODER_PULSES_PER_STEP = 4; //Quadrature
-const int PANEL_TO_ENCODER_TEETH = 62; //TODO incorporer dans la formule de PULSES_PER_PANEL
+const int ENCODER_PULSES_PER_STEP = 4;  // Quadrature
+const int PANEL_TO_ENCODER_TEETH = 62;  // TODO incorporer dans la formule de PULSES_PER_PANEL
 
-const int PANELS_COUNT = 62;                              
-const int PULSES_PER_PANEL = ENCODER_RESOLUTION / ENCODER_GEAR_TEETH * ENCODER_PULSES_PER_STEP; 
+const int PANELS_COUNT = 62;
+const int PULSES_PER_PANEL = ENCODER_RESOLUTION / ENCODER_GEAR_TEETH * ENCODER_PULSES_PER_STEP;
 const int PULSES_COUNT = PANELS_COUNT * PULSES_PER_PANEL;  // Nombre total d'impulsions (2232 par tour de panel. Encodeur tourne 1.55x plus vite que panels, 2232/1.55 = 1440 pulses par tour d'encodeur = 360 steps)
-const int DEFAULT_PANEL = 12;                               // 9;                              // Panel at optical sensor position
+const int DEFAULT_PANEL = 12;                              // 9;                              // Panel at optical sensor position
 const int DEFAULT_PANEL_PULSE_OFFSET = 1;                  // 1;                  // Optical sensor is detected at nth pulse of the default panel //TODO Directement calculer un DEFAULT_PULSE via les deux variables et faire en sorte que ce soit dans les limites [0-PULSES_TOTAL]
 const int DEFAULT_PULSE = (DEFAULT_PANEL * PULSES_PER_PANEL) + DEFAULT_PANEL_PULSE_OFFSET;
 static_assert(DEFAULT_PULSE >= 0 && DEFAULT_PULSE < PULSES_COUNT, "DEFAULT_PULSE must be in range [0-PULSES_COUNT]");
@@ -197,119 +198,6 @@ void sendHeaders() {
   server.sendHeader("Access-Control-Allow-Origin", "*");
 }
 
-String doGetDebug() {
-  return buildDebugJson("Debug request");
-}
-
-void handleGetDebug() {
-  sendHeaders();
-  server.send(200, "text/plain", doGetDebug());
-}
-
-int doGetCurrentPanel() {
-  return getCurrentPanel();
-}
-
-void handleGetCurrentPanel() {
-  sendHeaders();
-  server.send(200, "text/plain", String(doGetCurrentPanel()));
-}
-
-String doMoveToPanel(int panel) {
-  panel %= PANELS_COUNT;  // Ensure target is within bounds
-  setTargetPanel(panel);
-  setCurrentState(MOVING_TO_TARGET);
-  return "Moving to panel " + String(getTargetPanel());
-}
-
-void handleMoveToPanel() {
-  sendHeaders();
-  if (server.hasArg("panel")) {
-    int panel = server.arg("panel").toInt();
-    String message = doMoveToPanel(panel);
-    server.send(200, "text/plain", buildDebugJson(message));
-  } else {
-    server.send(400, "text/plain", "Missing 'panel' argument");
-  }
-}
-
-String doAdvancePanels(int count) {
-  int currentPanel = getCurrentPanel();
-  setTargetPanel((currentPanel + count) % PANELS_COUNT);
-  setCurrentState(MOVING_TO_TARGET);
-  return "From " + String(currentPanel) + ", Advancing " + String(count) + " panels to " + String(getTargetPanel());
-}
-
-void handleAdvancePanels() {
-  sendHeaders();
-  if (server.hasArg("count")) {
-    int count = server.arg("count").toInt();
-    String message = doAdvancePanels(count);
-    server.send(200, "text/plain", buildDebugJson(message));
-  } else {
-    server.send(400, "text/plain", "Missing 'count' argument");
-  }
-}
-
-String doAdvancePulses(int pulseCount) {
-  int currentPulses = getCurrentPulses();
-  setTargetPulses((currentPulses + pulseCount) % PULSES_COUNT);
-  setCurrentState(MOVING_TO_TARGET);
-  return "Advancing " + String(pulseCount) + " pulses to " + String(targetPulses);
-}
-
-void handleAdvancePulses() {
-  sendHeaders();
-  if (server.hasArg("count")) {
-    int pulseCount = server.arg("count").toInt();
-    String message = doAdvancePulses(pulseCount);
-    server.send(200, "text/plain", buildDebugJson(message));
-  } else {
-    server.send(400, "text/plain", "Missing 'count' argument");
-  }
-}
-
-String doCalibrate() {
-  setCurrentState(CALIBRATING);  // Set motor mode for calibration
-  calibrated = false;
-  return "Calibration started. Rotating until optical sensor edge is detected.";
-}
-
-void handleCalibrate() {
-  sendHeaders();
-  String message = doCalibrate();
-  server.send(200, "text/plain", buildDebugJson(message));
-}
-
-String doStop() {
-  setMotorSpeed(0);          // Use the centralized function to stop the motor
-  setCurrentState(STOPPED);  // Set motor mode to stopped
-  int currentPanel = getCurrentPanel();
-  setTargetPanel(currentPanel);
-  return "Stopped. Current panel set to " + String(currentPanel);
-}
-
-void handleStop() {
-  sendHeaders();
-  String message = doStop();
-  server.send(200, "text/plain", buildDebugJson(message));
-}
-
-String doReset() {
-  setMotorSpeed(0);  // Stop the motor
-  calibrated = false;
-  errorFlag = false;
-  errorMessage = "";
-  setCurrentState(STOPPED);
-  return "Reset";
-}
-
-void handleReset() {
-  sendHeaders();
-  String message = doReset();
-  server.send(200, "text/plain", buildDebugJson(message));
-}
-
 int getRemainingPulses() {
   int currentPulses = getCurrentPulses();
   return (targetPulses - currentPulses + PULSES_COUNT) % PULSES_COUNT;  // Calcule la distance en avance (horaire)
@@ -321,9 +209,9 @@ bool isTargetPanelReached() {
 
 float calculateSpeedCalibration() {
   if (OPTICAL_DETECTED_EDGE == RISING) {
-    return sensorState == LOW ? 0.3f : 0.6f;  // Half speed when we are about to detect the 2nd edge
+    return sensorState == LOW ? 0.5f : 1.f;  // Half speed when we are about to detect the 2nd edge
   } else {
-    return sensorState == HIGH ? 0.3f : 0.6f;
+    return sensorState == HIGH ? 0.5f : 1.f;
   }
 }
 
@@ -466,17 +354,17 @@ void IRAM_ATTR handleEncoderInterrupt() {
   byte pinA = (GPIO_REG_READ(GPIO_IN_ADDRESS) >> ENCODER_PIN_A) & 1;  // Lire PIN_A (Broche D2)
   byte pinB = (GPIO_REG_READ(GPIO_IN_ADDRESS) >> ENCODER_PIN_B) & 1;  // Lire PIN_B (Broche D3)
 
-  //Solution via table d'état (nécessite 2 interruptions A et B sur CHANGE et 36 pulses par panel)
+  // Solution via table d'état (nécessite 2 interruptions A et B sur CHANGE et 36 pulses par panel)
   encoderState = ((encoderState << 2) | (pinA << 1) | pinB) & 15;  // Décale et masque les bits
   int8_t pulseInc = ENCODER_STATE_TABLE[encoderState];
-  encoderPulses += pulseInc;              // Mets à jour la position en fonction de l'état de l'encodeur
-  encoderPulsesRaw += pulseInc;           // Mets à jour la position en fonction de l'état de l'encodeur
-  //Solution via comparaison (nécessite 1 interruption A sur CHANGE et 36/2 pulses par panel)
-  // if ((pinA == HIGH) != (pinB == LOW)) {
-  //   encoderPulses++;
-  // } else {
-  //   encoderPulses--;
-  // }
+  encoderPulses += pulseInc;     // Mets à jour la position en fonction de l'état de l'encodeur
+  encoderPulsesRaw += pulseInc;  // Mets à jour la position en fonction de l'état de l'encodeur
+  // Solution via comparaison (nécessite 1 interruption A sur CHANGE et 36/2 pulses par panel)
+  //  if ((pinA == HIGH) != (pinB == LOW)) {
+  //    encoderPulses++;
+  //  } else {
+  //    encoderPulses--;
+  //  }
   if (pulseInc < 1)
     return;
 
@@ -500,49 +388,293 @@ void IRAM_ATTR handleEncoderInterrupt() {
   }
 }
 
+class Command {
+ public:
+  virtual String getName() = 0;
+  virtual std::vector<AppState> getAppStates() = 0;
+  virtual void handleRest() = 0;
+  virtual void handleSerial(String params) = 0;
+  virtual String execute() = 0;
+};
+
+// Example implementation of a specific command
+class StopCommand : public Command {
+ public:
+  String getName() override {
+    return "stop";
+  }
+
+  std::vector<AppState> getAppStates() override {
+    return {STOPPED, MOVING_TO_TARGET, CALIBRATING, AUTO_CALIBRATING};
+  }
+
+  void handleRest() override {
+    sendHeaders();
+    String message = execute();
+    server.send(200, "text/plain", buildDebugJson(message));
+  }
+
+  void handleSerial(String params) override {
+    String response = execute();
+    Serial.println(response);
+  }
+
+  String execute() override {
+    setMotorSpeed(0);          // Use the centralized function to stop the motor
+    setCurrentState(STOPPED);  // Set motor mode to stopped
+    int currentPanel = getCurrentPanel();
+    setTargetPanel(currentPanel);
+    return "Stopped. Current panel set to " + String(currentPanel);
+  }
+};
+
+class PanelCommand : public Command {
+ public:
+  String getName() override {
+    return "panel";
+  }
+
+  std::vector<AppState> getAppStates() override {
+    return {STOPPED, MOVING_TO_TARGET, CALIBRATING, AUTO_CALIBRATING};
+  }
+
+  void handleRest() override {
+    sendHeaders();
+    server.send(200, "text/plain", String(execute()));
+  }
+
+  void handleSerial(String params) override {
+    Serial.println("Current panel: " + String(execute()));
+  }
+
+  String execute() override {
+    return String(getCurrentPanel());
+  }
+};
+
+class DebugCommand : public Command {
+ public:
+  String getName() override {
+    return "debug";
+  }
+
+  std::vector<AppState> getAppStates() override {
+    return {STOPPED, MOVING_TO_TARGET, CALIBRATING, AUTO_CALIBRATING};
+  }
+
+  void handleRest() override {
+    sendHeaders();
+    server.send(200, "text/plain", execute());
+  }
+
+  void handleSerial(String params) override {
+    Serial.println(execute());
+  }
+
+  String execute() override {
+    return buildDebugJson("Debug request");
+  }
+};
+
+class MoveToPanelCommand : public Command {
+ public:
+  String getName() override {
+    return "moveToPanel";
+  }
+
+  std::vector<AppState> getAppStates() override {
+    return {STOPPED, MOVING_TO_TARGET, CALIBRATING, AUTO_CALIBRATING};
+  }
+
+  void handleRest() override {
+    sendHeaders();
+    if (server.hasArg("panel")) {
+      int panel = server.arg("panel").toInt();
+      String message = execute(panel);
+      server.send(200, "text/plain", buildDebugJson(message));
+    } else {
+      server.send(400, "text/plain", "Missing 'panel' argument");
+    }
+  }
+
+  void handleSerial(String params) override {
+    int panel = params.toInt();
+    String response = execute(panel);
+    Serial.println(response);
+  }
+
+  String execute(int panel) {
+    panel %= PANELS_COUNT;  // Ensure target is within bounds
+    setTargetPanel(panel);
+    setCurrentState(MOVING_TO_TARGET);
+    return "Moving to panel " + String(getTargetPanel());
+  }
+};
+
+class AdvancePanelsCommand : public Command {
+ public:
+  String getName() override {
+    return "advancePanels";
+  }
+
+  std::vector<AppState> getAppStates() override {
+    return {STOPPED, MOVING_TO_TARGET, CALIBRATING, AUTO_CALIBRATING};
+  }
+
+  void handleRest() override {
+    sendHeaders();
+    if (server.hasArg("count")) {
+      int count = server.arg("count").toInt();
+      String message = execute(count);
+      server.send(200, "text/plain", buildDebugJson(message));
+    } else {
+      server.send(400, "text/plain", "Missing 'count' argument");
+    }
+  }
+
+  void handleSerial(String params) override {
+    int count = params.toInt();
+    String response = execute(count);
+    Serial.println(response);
+  }
+
+  String execute(int count) {
+    int currentPanel = getCurrentPanel();
+    setTargetPanel((currentPanel + count) % PANELS_COUNT);
+    setCurrentState(MOVING_TO_TARGET);
+    return "From " + String(currentPanel) + ", Advancing " + String(count) + " panels to " + String(getTargetPanel());
+  }
+};
+
+class AdvancePulsesCommand : public Command {
+ public:
+  String getName() override {
+    return "advancePulses";
+  }
+
+  std::vector<AppState> getAppStates() override {
+    return {STOPPED, MOVING_TO_TARGET, CALIBRATING, AUTO_CALIBRATING};
+  }
+
+  void handleRest() override {
+    sendHeaders();
+    if (server.hasArg("count")) {
+      int pulseCount = server.arg("count").toInt();
+      String message = execute(pulseCount);
+      server.send(200, "text/plain", buildDebugJson(message));
+    } else {
+      server.send(400, "text/plain", "Missing 'count' argument");
+    }
+  }
+
+  void handleSerial(String params) override {
+    int pulseCount = params.toInt();
+    String response = execute(pulseCount);
+    Serial.println(response);
+  }
+
+  String execute(int pulseCount) {
+    int currentPulses = getCurrentPulses();
+    setTargetPulses((currentPulses + pulseCount) % PULSES_COUNT);
+    setCurrentState(MOVING_TO_TARGET);
+    return "Advancing " + String(pulseCount) + " pulses to " + String(targetPulses);
+  }
+};
+
+class CalibrateCommand : public Command {
+ public:
+  String getName() override {
+    return "calibrate";
+  }
+
+  std::vector<AppState> getAppStates() override {
+    return {STOPPED, MOVING_TO_TARGET, CALIBRATING, AUTO_CALIBRATING};
+  }
+
+  void handleRest() override {
+    sendHeaders();
+    String message = execute();
+    server.send(200, "text/plain", buildDebugJson(message));
+  }
+
+  void handleSerial(String params) override {
+    String response = execute();
+    Serial.println(response);
+  }
+
+  String execute() override {
+    setCurrentState(CALIBRATING);  // Set motor mode for calibration
+    calibrated = false;
+    return "Calibration started. Rotating until optical sensor edge is detected.";
+  }
+};
+
+class ResetCommand : public Command {
+ public:
+  String getName() override {
+    return "reset";
+  }
+
+  std::vector<AppState> getAppStates() override {
+    return {STOPPED, MOVING_TO_TARGET, CALIBRATING, AUTO_CALIBRATING};
+  }
+
+  void handleRest() override {
+    sendHeaders();
+    String message = execute();
+    server.send(200, "text/plain", buildDebugJson(message));
+  }
+
+  void handleSerial(String params) override {
+    String response = execute();
+    Serial.println(response);
+  }
+
+  String execute() override {
+    setMotorSpeed(0);  // Stop the motor
+    calibrated = false;
+    errorFlag = false;
+    errorMessage = "";
+    setCurrentState(STOPPED);
+    return "Reset";
+  }
+};
+
 void handleSerialCommand(String command) {
   if (command == "stop") {
-    String response = doStop();
-    Serial.println(response);
+    StopCommand().handleSerial("");
   } else if (command == "reset") {
-    String response = doReset();
-    Serial.println(response);
+    ResetCommand().handleSerial("");
   } else if (command == "calibrate") {
-    String response = doCalibrate();
-    Serial.println(response);
+    CalibrateCommand().handleSerial("");
   } else if (command.startsWith("moveToPanel")) {
     int panel = command.substring(command.indexOf(' ') + 1).toInt();
-    String response = doMoveToPanel(panel);
-    Serial.println(response);
+    MoveToPanelCommand().handleSerial(String(panel));
   } else if (command.startsWith("advancePanels")) {
     int count = command.substring(command.indexOf(' ') + 1).toInt();
-    String response = doAdvancePanels(count);
-    Serial.println(response);
+    AdvancePanelsCommand().handleSerial(String(count));
   } else if (command.startsWith("advancePulses")) {
     int pulseCount = command.substring(command.indexOf(' ') + 1).toInt();
-    String response = doAdvancePulses(pulseCount);
-    Serial.println(response);
+    AdvancePulsesCommand().handleSerial(String(pulseCount));
   } else if (command == "debug") {
-    String response = doGetDebug();
-    Serial.println(response);
+    DebugCommand().handleSerial("");
   } else if (command == "currentPanel") {
-    int panel = doGetCurrentPanel();
-    Serial.println("Current panel: " + String(panel));
+    PanelCommand().handleSerial("");
   } else {
     Serial.println("Unknown command: -" + command + "-");
   }
 }
 
-String command = ""; // Variable pour stocker la commande reçue
+String command = "";  // Variable pour stocker la commande reçue
 
 void readSerial() {
   if (Serial.available() > 0) {
-     String incomingChar = Serial.readString(); // Lire un caractère
+    String incomingChar = Serial.readString();  // Lire un caractère
     if (incomingChar.endsWith("\n")) {
-      handleSerialCommand(command); // Traiter la commande complète
-      command = "";            // Réinitialiser pour la prochaine commande
+      handleSerialCommand(command);  // Traiter la commande complète
+      command = "";                  // Réinitialiser pour la prochaine commande
     } else {
-      command += incomingChar; // Ajouter le caractère à la commande
+      command += incomingChar;  // Ajouter le caractère à la commande
     }
   }
 }
@@ -553,14 +685,14 @@ void setup() {
   Serial.setTimeout(10);
 
   // REST API routes
-  server.on("/panel", HTTP_GET, handleGetCurrentPanel);  // TODO renommer en virant les gets et les mots panel des actions
-  server.on("/debug", HTTP_GET, handleGetDebug);
-  server.on("/moveToPanel", HTTP_POST, handleMoveToPanel);
-  server.on("/advancePanels", HTTP_POST, handleAdvancePanels);
-  server.on("/advancePulses", HTTP_POST, handleAdvancePulses);
-  server.on("/calibrate", HTTP_GET, handleCalibrate);  // TODO POST pour les actions memes simpes ?
-  server.on("/stop", HTTP_GET, handleStop);
-  server.on("/reset", HTTP_GET, handleReset);
+  server.on("/panel", HTTP_GET, []() { PanelCommand().handleRest(); });
+  server.on("/debug", HTTP_GET, []() { DebugCommand().handleRest(); });
+  server.on("/moveToPanel", HTTP_POST, []() { MoveToPanelCommand().handleRest(); });
+  server.on("/advancePanels", HTTP_POST, []() { AdvancePanelsCommand().handleRest(); });
+  server.on("/advancePulses", HTTP_POST, []() { AdvancePulsesCommand().handleRest(); });
+  server.on("/calibrate", HTTP_GET, []() { CalibrateCommand().handleRest(); });
+  server.on("/stop", HTTP_GET, []() { StopCommand().handleRest(); });
+  server.on("/reset", HTTP_GET, []() { ResetCommand().handleRest(); });
   server.begin();
   Serial.println("HTTP server started");
 
@@ -588,7 +720,7 @@ void loop() {
   evaluateStateTransitions();
   processStateActions();
   checkForRunningErrors();  // Check for blockages anc co
-  readSerial();  // Read and handle serial commands
+  readSerial();             // Read and handle serial commands
 
 #ifdef DEBUG_ENABLED
   serialPrintThrottled("ALL", buildDebugJson(""));
