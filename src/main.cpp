@@ -9,7 +9,11 @@ enum AppState {
   STOPPED,
   AUTO_CALIBRATING,
   MOVING_TO_TARGET,
-  CALIBRATING
+  CALIBRATING,
+  SETUP_GO_TO_ZERO,
+  SETUP_WAIT_PANEL_NB,
+  SETUP_MOVE_PULSE,
+  SETUP_WAIT_PULSE_NB
 };
 
 // Prototypes declaration
@@ -75,7 +79,6 @@ String command = "";  // Current serial command
 unsigned long loopMillis = 0;
 unsigned long lastLoopMillis = 0;  // Variable to store the last loop time
 ESP8266WebServer server(80);
-int targetPanel = 0;  // Panneau cible //TODO utiliser un targetPulses et virer quasi tous les appels get/setPanel sauf depuis l'api ou les debug
 volatile bool sensorState = LOW;
 bool errorFlag = false;    // Emergency stop flag
 String errorMessage = "";  // Emergency stop message
@@ -89,9 +92,9 @@ volatile int opticalDetectedPulses = 0;
 volatile int opticalDetectedEdgesCount = 0;
 volatile int encoderInterruptCallCount = 0;
 volatile uint8_t encoderState = 0;
-volatile int encoderPulses = 0; 
+volatile int encoderPulses = 0;
 volatile int encoderPulsesRaw = 0;
-const int8_t ENCODER_STATE_TABLE[16] = {0, 1, -1, -0, -1, 0, -0, 1, 1, -0, 0, -1, -0, -1, 1, 0}; // Encoder state table for natural debouncing
+const int8_t ENCODER_STATE_TABLE[16] = {0, 1, -1, -0, -1, 0, -0, 1, 1, -0, 0, -1, -0, -1, 1, 0};  // Encoder state table for natural debouncing
 
 #ifdef DEBUG_ENABLED
 std::map<String, String> lastDebugMessages;  // Map to store the last debug messages
@@ -314,6 +317,10 @@ bool isTargetPanelReached() {
   return getRemainingPulses() == 0;
 }
 
+float calculateSpeedSetup() {
+  return 0.1f;
+}
+
 float calculateSpeedCalibration() {
   if (OPTICAL_DETECTED_EDGE == RISING) {
     return sensorState == LOW ? 0.3f : 0.6f;  // Half speed when we are about to detect the 2nd edge
@@ -452,7 +459,7 @@ void IRAM_ATTR handleEncoderInterrupt() {
   encoderState = ((encoderState << 2) | (pinA << 1) | pinB) & 15;  // Décale et masque les bits
   int8_t pulseInc = ENCODER_STATE_TABLE[encoderState];
   encoderPulses += pulseInc;
-  encoderPulsesRaw += pulseInc; //TODO pas génial, faudrait gérer l'offset dans le getter ou le setter à partir du raw systématiquement et n'incrémenter que le raw
+  encoderPulsesRaw += pulseInc;  // TODO pas génial, faudrait gérer l'offset dans le getter ou le setter à partir du raw systématiquement et n'incrémenter que le raw
 
   if (pulseInc < 1)
     return;
@@ -581,6 +588,3 @@ void setMotorSpeed(float normalizedSpeed) {
   int speed = map(normalizedSpeed * 100, 0, 100, STOP_SPEED, RUN_SPEED);
   servo.write(speed);
 }
-
-
-
