@@ -35,7 +35,7 @@
  TODO API pour donner la liste des commandes possibles ?
  TODO Commande pour lister les commandes possibles ?
  TODO Refactorer selon un pattern "Command" ? on a une interface qui impose de retourner un nom (pour route et commande), une méthode d'exécution, une méthode de décodage (voire exécution) de l'appel rest, une méthode de décodage (et validation, voire exécution) de l'appel sérial. ça mixe un peu la logique REST/Serial/action mais plus extensible
-
+ TODO sécuriser API ?
 
 ### Shitty issues 
 - Optical encoder 38s6g5 needs >= 5V https://forum.arduino.cc/t/fyi-interfacing-e38s6g5-600b-g24n-600p-r-rotary-encoder/1057892

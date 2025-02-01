@@ -88,13 +88,9 @@ const unsigned long BLOCKAGE_TIMEOUT = 500;  // Timeout in milliseconds to detec
 volatile int opticalDetectedPulses = 0;
 volatile int opticalDetectedEdgesCount = 0;
 volatile int encoderInterruptCallCount = 0;
-volatile int encoderPulses = 0;  // New variable to store encoder pulses
+volatile int encoderPulses = 0; 
 volatile int encoderPulsesRaw = 0;
-
-// Encoder state table for natural debouncing
-// const int8_t ENCODER_STATE_TABLE[16] = {0, -1, 1, 0, 1, 0, 0, -1, -1, 0, 0, 1, 0, 1, -1, 0};
-
-const int8_t ENCODER_STATE_TABLE[16] = {0, 1, -1, -0, -1, 0, -0, 1, 1, -0, 0, -1, -0, -1, 1, 0};
+const int8_t ENCODER_STATE_TABLE[16] = {0, 1, -1, -0, -1, 0, -0, 1, 1, -0, 0, -1, -0, -1, 1, 0}; // Encoder state table for natural debouncing
 
 volatile uint8_t encoderState = 0;
 
@@ -457,13 +453,12 @@ void IRAM_ATTR handleEncoderInterrupt() {
   encoderState = ((encoderState << 2) | (pinA << 1) | pinB) & 15;  // Décale et masque les bits
   int8_t pulseInc = ENCODER_STATE_TABLE[encoderState];
   encoderPulses += pulseInc;
-  encoderPulsesRaw += pulseInc;
+  encoderPulsesRaw += pulseInc; //TODO pas génial, faudrait gérer l'offset dans le getter ou le setter à partir du raw systématiquement et n'incrémenter que le raw
 
   if (pulseInc < 1)
     return;
 
   // Check if the optical sensor detected an edge
-  //  sensorState = digitalRead(OPTICAL_SENSOR_PIN);
   sensorState = (GPIO_REG_READ(GPIO_IN_ADDRESS) >> OPTICAL_SENSOR_PIN) & 1;
   if ((DETECTED_STATE == LOW && sensorState == HIGH && lastSensorState == LOW) ||
       (DETECTED_STATE == HIGH && sensorState == LOW && lastSensorState == HIGH)) {
