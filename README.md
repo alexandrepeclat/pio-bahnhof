@@ -1,30 +1,18 @@
 ### TODO MECANIQUE :
-- Prévoir ENCORE plus de place pour pins capteur optique
-- Trous incorrects sur encodeur + donner la bonne orientation (câble)
 
 - Inverser capteur optique ? et mettre trou vis supplémentaire ailleurs (je dois faire le trou de toute manière)
-- Roue optique plus fine
-- Faciliter l'ajustement de la roue optique
-   - fixation par le haut ?
-   - fentes pour voir le trou ?
-- Permettre de découpler les roues ? dur
-  - Roue libre à insérer une fois que tout est en place pour permettre de libérer le mécanisme en manuel) ?
-- Trous de fixation corrects ? l'un était trop étroit
-- Trou axe roue optique trop petit il semble
-- Voir comment fixer AXE roue optique + rondelles
 - Voir comment fixer roue encodeur + rondelles
   - Spacer imprimé entre roue et base encodeur ?
-  - Trou de la roue pas obligé de passer au travers. le bas peut être plein et bloquer pour pas que la roue remonte le shaft
   - Rondelle entre roue et plaque métal ?
 - Espacer les roues imprimées de 0.1-2mm (ou les diminuer de taille) pour avoir une tolérance ?
+- Support de carte + couvercle
+- Alim externe + fiche
 
  ### TODO SOFTWARE :
  https:github.com/madhephaestus/ESP32Encoder (complet et avec interruptions)
  https:github.com/sandy9159/How-to-connect-optical-rotary-encoder-with-Arduino (pas quadrature mais directionnel)
  TODO ON DOIT tenir compte d'un certain offset pour savoir si on a atteint le target car quand la boucle stoppe le moteur, c'est déjà dépassé de quelques steps
  - Ou alors voir si on gère le stop dans les interruptions encodeur..... tout est dans les interruptions chais pas trop si c'est bien...
- - Vu que l'optique sette l'encodeur à zéro, si c'est fait dans sa propre interruption moui (mais il y a des bouces sur font falling aussi), si c'est fait dans les interruptions encodeur ça a encore du sens (on prend le rising edge au moment d'un step d'encodeur)
- - Vu que lorsqu'on targette on veut s'arrêter dès qu'on a passé un step d'encodeur, ça peut avoir du sens de le faire dans les interruptions encodeur.........
  TODO ça semble se mettre en veille au bout d'un moment......
  TODO réorganiser la détection d'erreurs
  - on a emergencyStop et assertThis un peu interchangeables
@@ -49,55 +37,17 @@
  TODO Refactorer selon un pattern "Command" ? on a une interface qui impose de retourner un nom (pour route et commande), une méthode d'exécution, une méthode de décodage (voire exécution) de l'appel rest, une méthode de décodage (et validation, voire exécution) de l'appel sérial. ça mixe un peu la logique REST/Serial/action mais plus extensible
 
 
-/*
-
-Shitty issues: 
+### Shitty issues 
 - Optical encoder 38s6g5 needs >= 5V https://forum.arduino.cc/t/fyi-interfacing-e38s6g5-600b-g24n-600p-r-rotary-encoder/1057892
 
+### Hardware
 38s6g5 Optical Encoder (5 - 24 V)
-KY-040 Rotary Encoder 
 MG996R Servo Motor with continuous rotation (4.8 - 6.6 V)
 KY-010 Optical sensor (3.3 - 5 V)
 
-1 impulsion par panneau (quadrature) :
-Roue des panneaux : 24 mm, 48 dents
-Roue de photodiode : 24 mm, 48 dents
-Roue de l'encodeur : 32 mm, 64 dents
-Roue du moteur : xx mm, 20 dents
-Rapport : 0.75:1
-
-2 impulsions par panneau :
-Roue des panneaux : 24 mm, 48 dents
-Roue de l'encodeur : 16 mm, 32 dents
-Rapport : 1.5:1
-
-4 impulsions par panneau (steps mécaniques) :
-Roue des panneaux : 24 mm, 48 dents
-Roue de l'encodeur : 8 mm, 16 dents
-Rapport : 3:1
-
- */
 
 
-# V1-2-3 
-Roue panneaux
-- 62 panneaux
-- 48 dents -> 48
-
-Roue optique + changement rapport encodeur : 
-- 1x slot
-- 62 dents -> 40
-- 48 dents <- 48
-
-Roue encodeur : 
-- 40 dents <- 62
-
-1 dent des panneaux = 1 dent encodeur
-1 panneau = NPLUSES/40 = 360/40 = 9 impulsions
-1 tour panneaux / tour encodeur = 62/40 = 1.0333 tour encodeur / tour panneaux
-https://geargenerator.com/beta/#Tdy5@vg5ZvUBcv0QPm0APA5kUacGfBcXk6K7vYVOVbX2$fiup3W95Wy1BaSdYn3EiEUjFSPDvQ5
-
-# V4 
+### V4 
 Roue panneaux
 - 62 panneaux
 - 48 dents -> 48
@@ -127,16 +77,29 @@ Diviseurs de 360 : 1, 2, 3, 4, 5, 6, 8, 9, 10, 12, 15, 18, 20, 24, 30, 36, 40, 4
 
 
 
+### V1-2-3 
+Roue panneaux
+- 62 panneaux
+- 48 dents -> 48
+
+Roue optique + changement rapport encodeur : 
+- 1x slot
+- 62 dents -> 40
+- 48 dents <- 48
+
+Roue encodeur : 
+- 40 dents <- 62
+
+1 dent des panneaux = 1 dent encodeur
+1 panneau = NPLUSES/40 = 360/40 = 9 impulsions
+1 tour panneaux / tour encodeur = 62/40 = 1.0333 tour encodeur / tour panneaux
+https://geargenerator.com/beta/#Tdy5@vg5ZvUBcv0QPm0APA5kUacGfBcXk6K7vYVOVbX2$fiup3W95Wy1BaSdYn3EiEUjFSPDvQ5
 
 
 
-
-
-
-
-
+### REST call examples
 curl -Method Get -Uri "http://192.168.0.222/stop"
-curl -Method Get -Uri "http://192.168.0.222/getCurrentPanel"
+curl -Method Get -Uri "http://192.168.0.222/panel"
 curl -Method Post -Uri "http://192.168.0.222/moveToPanel" -Body @{panel=6} -ContentType "application/x-www-form-urlencoded"
 curl -Method Post -Uri "http://192.168.0.222/advancePanels" -Body @{count=2} -ContentType "application/x-www-form-urlencoded"
 curl -Method Post -Uri "http://192.168.0.222/setCurrentPanel" -Body @{panel=0} -ContentType "application/x-www-form-urlencoded"
