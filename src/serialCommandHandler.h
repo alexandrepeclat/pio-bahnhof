@@ -7,36 +7,38 @@
 #include <vector>
 
 // Classe pour gérer l'enregistrement et l'appel des commandes
-class CommandHandler {
+class SerialCommandHandler {
  public:
   // Enregistrer une commande sans argument
-  void registerCommand(const std::string& command, std::function<void()> callback) {
+  void registerCommand(const std::string& command, std::function<String()> callback) {
     _commandCallbacks[command] = [this, callback](const std::vector<std::string>& args) {
       Serial.println("args size: " + String(args.size()));
       if (!args.empty()) {
         Serial.println("Erreur: trop d'arguments.");
         return;
       }
-      callback();
+      String response = callback();
+      Serial.println(response);
     };
   }
 
   // Enregistrer une commande avec 1 argument
   template <typename Arg1>
-  void registerCommand(const std::string& command, std::function<void(Arg1)> callback) {
+  void registerCommand(const std::string& command, std::function<String(Arg1)> callback) {
     _commandCallbacks[command] = [this, callback](const std::vector<std::string>& args) {
       if (args.size() != 1) {
         Serial.println("Erreur: mauvais nombre d'arguments.");
         return;
       }
       Arg1 arg1 = convertArgument<Arg1>(args[0]);  // Conversion
-      callback(arg1);
+      String response = callback(arg1);
+      Serial.println(response);
     };
   }
 
   // Enregistrer une commande avec 2 arguments
   template <typename Arg1, typename Arg2>
-  void registerCommand(const std::string& command, std::function<void(Arg1, Arg2)> callback) {
+  void registerCommand(const std::string& command, std::function<String(Arg1, Arg2)> callback) {
     _commandCallbacks[command] = [this, callback](const std::vector<std::string>& args) {
       if (args.size() != 2) {
         Serial.println("Erreur: mauvais nombre d'arguments.");
@@ -44,13 +46,14 @@ class CommandHandler {
       }
       Arg1 arg1 = convertArgument<Arg1>(args[0]);  // Conversion
       Arg2 arg2 = convertArgument<Arg2>(args[1]);  // Conversion
-      callback(arg1, arg2);
+      String response = callback(arg1, arg2);
+      Serial.println(response);
     };
   }
 
   // Enregistrer une commande avec 3 arguments
   template <typename Arg1, typename Arg2, typename Arg3>
-  void registerCommand(const std::string& command, std::function<void(Arg1, Arg2, Arg3)> callback) {
+  void registerCommand(const std::string& command, std::function<String(Arg1, Arg2, Arg3)> callback) {
     _commandCallbacks[command] = [this, callback](const std::vector<std::string>& args) {
       if (args.size() != 3) {
         Serial.println("Erreur: mauvais nombre d'arguments.");
@@ -59,7 +62,8 @@ class CommandHandler {
       Arg1 arg1 = convertArgument<Arg1>(args[0]);  // Conversion
       Arg2 arg2 = convertArgument<Arg2>(args[1]);  // Conversion
       Arg3 arg3 = convertArgument<Arg3>(args[2]);  // Conversion
-      callback(arg1, arg2, arg3);
+      String response = callback(arg1, arg2, arg3);
+      Serial.println(response);
     };
   }
 

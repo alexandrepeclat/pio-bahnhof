@@ -4,7 +4,7 @@
 #include <Servo.h>
 #include <secrets.h>
 #include <map>
-#include <commandHandler.h>
+#include <serialCommandHandler.h>
 #include <restCommandHandler.h>
 
 
@@ -24,12 +24,10 @@ int getCurrentPulses();
 int getCurrentPanel();
 int getTargetPulses();
 String buildDebugJson(String message);
-void sendHeaders();
 float calculateSpeedMovingToTarget();
 int getRemainingPulses();
 void setMotorSpeed(float normalizedSpeed);
 void setTargetPanel(int panel);
-void handleAdvancePulses();
 int getTargetPanel();
 void emergencyStop(String message);
 String stateToString(AppState state);
@@ -59,7 +57,6 @@ const int TARGET_PULSE_OFFSET = 12;    // When going to target, go to the nth pu
 static_assert(TARGET_PULSE_OFFSET >= 0 && TARGET_PULSE_OFFSET < PULSES_PER_PANEL, "OFFSET must be in range [0-PULSES_PER_PANEL]");
 
 // Globals
-String command = "";  // Current serial command
 unsigned long loopMillis = 0;
 unsigned long lastLoopMillis = 0;  // Variable to store the last loop time
 ESP8266WebServer server(80);
@@ -67,6 +64,11 @@ bool errorFlag = false;    // Emergency stop flag
 String errorMessage = "";  // Emergency stop message
 volatile AppState currentState = STOPPED;
 volatile bool calibrated = false;
+SerialCommandHandler serialCommandHandler; 
+RestCommandHandler restCommandHandler(server); 
+//TODO méthodes de conversion plantent si mauvais argument
+//TODO faire un mégaHandler qui prend les autres en paramètre et boucle dessus
+//TODO fonctions pour lister les commandes et API avec params
 
 // Encoder
 int defaultPulse = 0;
@@ -212,25 +214,26 @@ void loadDefaultPulse() {
 
 // Functions
 
-void doSetupGoToZero() {
+String doSetupGoToZero() {
   calibrated = false;  // TODO Voir si c'ets bien de réutiliser la même var
   defaultPulse = 0;    // Reset default pulse
   setCurrentState(SETUP_GO_TO_ZERO);
+  return "Going to zero. Wait for the motor to stop, then call 'setupNext'.";
 }
 
-void doSetupNextPulse() {
+String doSetupNextPulse() {
   if (currentState != SETUP_WAITING_COMMAND) {
-    return;
+    return "Invalid state for this command. Call 'setupStart' first.";
   }
   setCurrentState(SETUP_MOVE_PULSE);
   targetPulses = (getCurrentPulses() + 1) % PULSES_COUNT;
-  Serial.println("Next pulse: " + String(targetPulses)); //TODO retourner message depuis les méthodes d'action
-  // Will make currentPulses increment
+  Serial.println("Next pulse: " + String(targetPulses)); 
+  return "Moving to next pulse. Call 'setupNext' if the panel did not change, or call 'setupEnd x' if it did where x is the panel number.";
 }
 
-void doSetupSetPanelNb(int panel) {
+String doSetupSetPanelNb(int panel) {
   if (currentState != SETUP_WAITING_COMMAND) {
-    return;
+    return "Invalid state for this command. Call 'setupStart' first.";
   }
 
   setCurrentState(STOPPED);
@@ -238,33 +241,21 @@ void doSetupSetPanelNb(int panel) {
   assertThis(defaultPulse >= 0 && defaultPulse < PULSES_COUNT, "defaultPulse " + String(defaultPulse) + " out of bounds [0-" + String(PULSES_COUNT) + "]");
   encoderPulses += defaultPulse; //TODO à virer si on gère l'offset dynamiquement ce qui serait pas mal ET SURTOUT ne pas placer cette ligne avant defaultPulse=...
   saveDefaultPulse();
+  return "Setup completed. Default pulse set to " + String(defaultPulse) + ". Default panel is " + String(getDefaultPanel()) + " with offset " + String(getDefaultPulseOffset());
 }
 
-void doSetupCancel() {
+String doSetupCancel() {
   setCurrentState(STOPPED);
   loadDefaultPulse();
-}
-
-void sendHeaders() {
-  server.sendHeader("Access-Control-Allow-Origin", "*");
+  return "Setup canceld. Default pulse retored to " + String(defaultPulse);
 }
 
 String doGetDebug() {
   return buildDebugJson("Debug request");
 }
 
-void handleGetDebug() {
-  sendHeaders();
-  server.send(200, "text/plain", doGetDebug());
-}
-
-int doGetCurrentPanel() {
-  return getCurrentPanel();
-}
-
-void handleGetCurrentPanel() {
-  sendHeaders();
-  server.send(200, "text/plain", String(doGetCurrentPanel()));
+String doGetCurrentPanel() {
+  return String(getCurrentPanel());
 }
 
 String doMoveToPanel(int panel) {
@@ -274,33 +265,11 @@ String doMoveToPanel(int panel) {
   return "Moving to panel " + String(getTargetPanel());
 }
 
-void handleMoveToPanel() {
-  sendHeaders();
-  if (server.hasArg("panel")) {
-    int panel = server.arg("panel").toInt();
-    String message = doMoveToPanel(panel);
-    server.send(200, "text/plain", buildDebugJson(message));
-  } else {
-    server.send(400, "text/plain", "Missing 'panel' argument");
-  }
-}
-
 String doAdvancePanels(int count) {
   int currentPanel = getCurrentPanel();
   setTargetPanel((currentPanel + count) % PANELS_COUNT);
   setCurrentState(MOVING_TO_TARGET);
   return "From " + String(currentPanel) + ", Advancing " + String(count) + " panels to " + String(getTargetPanel());
-}
-
-void handleAdvancePanels() {
-  sendHeaders();
-  if (server.hasArg("count")) {
-    int count = server.arg("count").toInt();
-    String message = doAdvancePanels(count);
-    server.send(200, "text/plain", buildDebugJson(message));
-  } else {
-    server.send(400, "text/plain", "Missing 'count' argument");
-  }
 }
 
 String doAdvancePulses(int pulseCount) {
@@ -310,40 +279,18 @@ String doAdvancePulses(int pulseCount) {
   return "Advancing " + String(pulseCount) + " pulses to " + String(targetPulses);
 }
 
-void handleAdvancePulses() {
-  sendHeaders();
-  if (server.hasArg("count")) {
-    int pulseCount = server.arg("count").toInt();
-    String message = doAdvancePulses(pulseCount);
-    server.send(200, "text/plain", buildDebugJson(message));
-  } else {
-    server.send(400, "text/plain", "Missing 'count' argument");
-  }
-}
-
 String doCalibrate() {
   setCurrentState(CALIBRATING);  // Set motor mode for calibration
   calibrated = false;
   return "Calibration started. Rotating until optical sensor edge is detected.";
 }
 
-void handleCalibrate() {
-  sendHeaders();
-  String message = doCalibrate();
-  server.send(200, "text/plain", buildDebugJson(message));
-}
-
 String doStop() {
   setMotorSpeed(0);          // Use the centralized function to stop the motor
   setCurrentState(STOPPED);  // Set motor mode to stopped
   setTargetPulses(getCurrentPulses());
+  Serial.println("doStop !");
   return "Stopped. Current panel set to " + String(getCurrentPanel());
-}
-
-void handleStop() {
-  sendHeaders();
-  String message = doStop();
-  server.send(200, "text/plain", buildDebugJson(message));
 }
 
 String doReset() {
@@ -354,12 +301,6 @@ String doReset() {
   loadDefaultPulse();
   setCurrentState(STOPPED);
   return "Reset";
-}
-
-void handleReset() {
-  sendHeaders();
-  String message = doReset();
-  server.send(200, "text/plain", buildDebugJson(message));
 }
 
 int getRemainingPulses() {
@@ -564,121 +505,39 @@ void IRAM_ATTR handleEncoderInterrupt() {
   }
 }
 
-void handleSerialCommand(String command) {
-  if (command == "stop") {
-    String response = doStop();
-    Serial.println(response);
-  } else if (command == "reset") {
-    String response = doReset();
-    Serial.println(response);
-  } else if (command == "calibrate") {
-    String response = doCalibrate();
-    Serial.println(response);
-  } else if (command.startsWith("moveToPanel")) {
-    int panel = command.substring(command.indexOf(' ') + 1).toInt();
-    String response = doMoveToPanel(panel);
-    Serial.println(response);
-  } else if (command.startsWith("advancePanels")) {
-    int count = command.substring(command.indexOf(' ') + 1).toInt();
-    String response = doAdvancePanels(count);
-    Serial.println(response);
-  } else if (command.startsWith("advancePulses")) {
-    int pulseCount = command.substring(command.indexOf(' ') + 1).toInt();
-    String response = doAdvancePulses(pulseCount);
-    Serial.println(response);
-  } else if (command == "debug") {
-    String response = doGetDebug();
-    Serial.println(response);
-  } else if (command == "currentPanel") {
-    int panel = doGetCurrentPanel();
-    Serial.println("Current panel: " + String(panel));
-  } else if (command == "setupGoToZero") {
-    doSetupGoToZero();
-    Serial.println("Setup: Go to zero");
-  } else if (command == "setupNextPulse") {
-    doSetupNextPulse();
-    Serial.println("Setup: Next pulse");
-  } else if (command.startsWith("setupSetPanelNb")) {
-    int panel = command.substring(command.indexOf(' ') + 1).toInt();
-    doSetupSetPanelNb(panel);
-    Serial.println("Setup: Set panel number " + String(panel));
-  } else if (command == "setupCancel") {
-    doSetupCancel();
-    Serial.println("Setup: Cancel");
-  } else {
-    Serial.println("Unknown command: -" + command + "-");
-  }
-}
-
-void readSerial() {
-  if (Serial.available() > 0) {
-    String incomingChar = Serial.readString();  // Lire un caractère
-    if (incomingChar.endsWith("\n")) {
-      handleSerialCommand(command);  // Traiter la commande complète
-      command = "";                  // Réinitialiser pour la prochaine commande
-    } else {
-      command += incomingChar;  // Ajouter le caractère à la commande
-    }
-  }
-}
-
-// Instance globale pour gérer les commandes
-CommandHandler commandHandler; 
-RestCommandHandler restCommandHandler(server); 
-//TODO méthodes de conversion plantent si mauvais argument
-//TODO faire un mégaHandler qui prend les autres en paramètre et boucle dessus
-//TODO fonctions pour lister les commandes et API avec params
-//TODO retour de type String pour feedback de la commande ou appel rest
-
-void test3Args(int a, int b, int c) {
-  Serial.println("3 args: " + String(a) + " " + String(b) + " " + String(c));
-}
-
 void setup() {
   assert(!WiFi.getPersistent());
   Serial.begin(115200);
   Serial.setTimeout(10);
 
-  // Register commands
-  commandHandler.registerCommand("stop", doStop);
-  commandHandler.registerCommand("reset", doReset);
-  commandHandler.registerCommand("calibrate", doCalibrate);
-  commandHandler.registerCommand("debug", doGetDebug);
-  commandHandler.registerCommand<int>("moveToPanel", doMoveToPanel);
-  commandHandler.registerCommand<int>("advancePanels", doAdvancePanels);
-  commandHandler.registerCommand<int>("advancePulses", doAdvancePulses);
-  commandHandler.registerCommand("panel", doGetCurrentPanel);
-  commandHandler.registerCommand("setupStart", doSetupGoToZero);
-  commandHandler.registerCommand("setupNext", doSetupNextPulse);
-  commandHandler.registerCommand<int>("setupEnd", doSetupSetPanelNb);
-  commandHandler.registerCommand("setupCancel", doSetupCancel);
+  // Register Serial commands
+  serialCommandHandler.registerCommand("stop", doStop);
+  serialCommandHandler.registerCommand("reset", doReset);
+  serialCommandHandler.registerCommand("calibrate", doCalibrate);
+  serialCommandHandler.registerCommand("debug", doGetDebug);
+  serialCommandHandler.registerCommand<int>("moveToPanel", doMoveToPanel);
+  serialCommandHandler.registerCommand<int>("advancePanels", doAdvancePanels);
+  serialCommandHandler.registerCommand<int>("advancePulses", doAdvancePulses);
+  serialCommandHandler.registerCommand("panel", doGetCurrentPanel);
+  serialCommandHandler.registerCommand("setupStart", doSetupGoToZero);
+  serialCommandHandler.registerCommand("setupNext", doSetupNextPulse);
+  serialCommandHandler.registerCommand<int>("setupEnd", doSetupSetPanelNb);
+  serialCommandHandler.registerCommand("setupCancel", doSetupCancel);
 
-  commandHandler.registerCommand<int,int,int>("test3args", test3Args);
-
-  // Register REST commands
+  // Register REST API routes
   restCommandHandler.registerCommand("stop", HTTP_GET, doStop);
   restCommandHandler.registerCommand("reset", HTTP_GET, doReset);
   restCommandHandler.registerCommand("calibrate", HTTP_GET, doCalibrate);
   restCommandHandler.registerCommand("debug", HTTP_GET, doGetDebug);
-  restCommandHandler.registerCommand<int>("moveToPanel", HTTP_POST, {"panelNb"}, doMoveToPanel);
+  restCommandHandler.registerCommand<int>("moveToPanel", HTTP_POST, {"panel"}, doMoveToPanel);
   restCommandHandler.registerCommand<int>("advancePanels", HTTP_POST, {"count"}, doAdvancePanels);
   restCommandHandler.registerCommand<int>("advancePulses", HTTP_POST, {"count"}, doAdvancePulses);
   restCommandHandler.registerCommand("panel", HTTP_GET, doGetCurrentPanel);
   restCommandHandler.registerCommand("setupStart", HTTP_GET, doSetupGoToZero);
   restCommandHandler.registerCommand("setupNext", HTTP_GET, doSetupNextPulse);
-  restCommandHandler.registerCommand<int>("setupEnd", HTTP_POST, {"panelNb"}, doSetupSetPanelNb);
+  restCommandHandler.registerCommand<int>("setupEnd", HTTP_POST, {"panel"}, doSetupSetPanelNb);
   restCommandHandler.registerCommand("setupCancel", HTTP_GET, doSetupCancel);
 
-
-  // REST API routes
-  // server.on("/panel", HTTP_GET, handleGetCurrentPanel);  // TODO renommer en virant les gets et les mots panel des actions
-  // server.on("/debug", HTTP_GET, handleGetDebug);
-  // server.on("/moveToPanel", HTTP_POST, handleMoveToPanel);
-  // server.on("/advancePanels", HTTP_POST, handleAdvancePanels);
-  // server.on("/advancePulses", HTTP_POST, handleAdvancePulses);
-  // server.on("/calibrate", HTTP_GET, handleCalibrate);  // TODO POST pour les actions memes simpes ?
-  // server.on("/stop", HTTP_GET, handleStop);
-  // server.on("/reset", HTTP_GET, handleReset);
   server.begin();
   Serial.println("HTTP server started");
 
@@ -692,7 +551,6 @@ void setup() {
 
   // Optical sensor setup
   pinMode(OPTICAL_SENSOR_PIN, INPUT_PULLDOWN_16);  // Configure le capteur optique en entrée
-  // attachInterrupt(digitalPinToInterrupt(OPTICAL_SENSOR_PIN), handleOpticalSensorInterrupt, OPTICAL_DETECTED_EDGE);  // Attach interrupt
 
   // Encoder setup
   pinMode(ENCODER_PIN_A, INPUT_PULLUP);
@@ -703,15 +561,14 @@ void setup() {
 
 void loop() {
 
-  commandHandler.handleSerialCommands();
+  serialCommandHandler.handleSerialCommands();
   server.handleClient();  // Handle incoming HTTP requests
-  //connectToWiFi();        // Keep it alive //TODO Wifi non bloquant
+  connectToWiFi();        // Keep it alive //TODO Wifi non bloquant
   loopMillis = millis();
   readSensors();  // Read sensors and handle edge detection
   evaluateStateTransitions();
   processStateActions();
   checkForRunningErrors();  // Check for blockages anc co
-  //readSerial();             // Read and handle serial commands
 
 #ifdef DEBUG_ENABLED
   serialPrintThrottled("ALL", buildDebugJson(""));
