@@ -151,14 +151,13 @@ String buildDebugJson(String message) {
                ",\"encInt\":" + String(encoderInterruptCallCount) +
                ",\"calibrated\":" + String(calibrated) +
                ",\"dist\":" + String(getRemainingPulses()) +
-               //",\"speed\":" + String(calculateSpeedMovingToTarget()) +
                ",\"servo\":" + String(servo.read()) +
-               //",\"errorFlag\":" + String(errorFlag) +
-               //",\"errorMessage\":\"" + errorMessage + "\"" +
                ",\"defaultPulse\":" + String(defaultPulse) +
                ",\"defaultPanel\":" + String(getDefaultPanel()) +
                ",\"defaultPulseOffset\":" + String(getDefaultPulseOffset()) +
                ",\"state\":" + stateToString(currentState) +
+               //",\"errorFlag\":" + String(errorFlag) +
+               ",\"errorMessage\":\"" + errorMessage + "\"" +
                "}";
   return debugJson;
 }
