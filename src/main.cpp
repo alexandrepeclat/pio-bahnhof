@@ -623,8 +623,11 @@ void readSerial() {
 }
 
 // Instance globale pour gérer les commandes
-CommandHandler commandHandler;
-RestCommandHandler restCommandHandler(server);
+CommandHandler commandHandler; 
+RestCommandHandler restCommandHandler(server); 
+//TODO méthodes de conversion plantent si mauvais argument
+//TODO faire un mégaHandler qui prend les autres en paramètre et boucle dessus
+//TODO fonctions pour lister les commandes et API avec params
 
 void setup() {
   assert(!WiFi.getPersistent());
