@@ -68,7 +68,7 @@ class SerialCommandHandler {
   }
 
   // Gérer les commandes série
-  void handleSerialCommands() {
+  void handleSerial() {
     static String command = "";
 
     if (Serial.available() > 0) {

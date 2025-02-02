@@ -125,6 +125,10 @@ class RestCommandHandler {
     });
   }
 
+  void handleClient() {
+    _server.handleClient();  // Handle incoming HTTP requests
+  }
+
  private:
   ESP8266WebServer& _server;  // Référence au serveur pour l'enregistrement des routes
 
