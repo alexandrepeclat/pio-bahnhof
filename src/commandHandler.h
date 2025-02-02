@@ -69,7 +69,15 @@ class CommandHandler {
 
     if (Serial.available() > 0) {
       String incomingChar = Serial.readString();  // Lire toute la chaîne d'entrée
-      command += incomingChar;                    // Ajouter le caractère à la commande
+
+      // If backspace is pressed remove the last character
+      if (incomingChar == "\b") {
+        if (command.length() > 0) {
+          command.remove(command.length() - 1, 1);
+        }
+      } else {
+        command += incomingChar;  // Ajouter le caractère à la commande
+      }
 
       // Si la commande se termine par un retour à la ligne, on la traite
       if (command.endsWith("\n")) {
