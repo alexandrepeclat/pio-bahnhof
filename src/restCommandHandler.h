@@ -11,6 +11,27 @@ public:
     // Constructeur qui prend une référence à l'ESP8266WebServer
     RestCommandHandler(ESP8266WebServer& server) : _server(server) {}
 
+    // Enregistrer une commande REST sans argument
+    void registerCommand(const std::string& endpoint, HTTPMethod method, std::function<void()> callback) {
+        _server.on(endpoint.c_str(), method, [this, callback, method]() {
+            // Vérifier si la méthode correspond
+            if (_server.method() != method) {
+                _server.send(405, "text/plain", "Method Not Allowed");
+                return;
+            }
+
+            // Vérifier qu'il n'y a pas d'arguments
+            if (_server.args() > 0) {
+                _server.send(400, "text/plain", "Bad Request: too many arguments");
+                return;
+            }
+
+            // Appel du callback
+            callback();
+            _server.send(200, "text/plain", "OK");
+        });
+    }
+
     // Enregistrer une commande REST avec 1 argument
     template <typename Arg1>
     void registerCommand(const std::string& endpoint, HTTPMethod method, const std::vector<String>& args, std::function<void(Arg1)> callback) {

@@ -628,25 +628,57 @@ RestCommandHandler restCommandHandler(server);
 //TODO méthodes de conversion plantent si mauvais argument
 //TODO faire un mégaHandler qui prend les autres en paramètre et boucle dessus
 //TODO fonctions pour lister les commandes et API avec params
+//TODO retour de type String pour feedback de la commande ou appel rest
+
+void test3Args(int a, int b, int c) {
+  Serial.println("3 args: " + String(a) + " " + String(b) + " " + String(c));
+}
 
 void setup() {
   assert(!WiFi.getPersistent());
   Serial.begin(115200);
   Serial.setTimeout(10);
 
-  commandHandler.registerCommand<int>("move", doMoveToPanel);
-    restCommandHandler.registerCommand<int>("moveToPanel", HTTP_POST, {"panelNb"}, doMoveToPanel);
+  // Register commands
+  commandHandler.registerCommand("stop", doStop);
+  commandHandler.registerCommand("reset", doReset);
+  commandHandler.registerCommand("calibrate", doCalibrate);
+  commandHandler.registerCommand("debug", doGetDebug);
+  commandHandler.registerCommand<int>("moveToPanel", doMoveToPanel);
+  commandHandler.registerCommand<int>("advancePanels", doAdvancePanels);
+  commandHandler.registerCommand<int>("advancePulses", doAdvancePulses);
+  commandHandler.registerCommand("panel", doGetCurrentPanel);
+  commandHandler.registerCommand("setupStart", doSetupGoToZero);
+  commandHandler.registerCommand("setupNext", doSetupNextPulse);
+  commandHandler.registerCommand<int>("setupEnd", doSetupSetPanelNb);
+  commandHandler.registerCommand("setupCancel", doSetupCancel);
+
+  commandHandler.registerCommand<int,int,int>("test3args", test3Args);
+
+  // Register REST commands
+  restCommandHandler.registerCommand("stop", HTTP_GET, doStop);
+  restCommandHandler.registerCommand("reset", HTTP_GET, doReset);
+  restCommandHandler.registerCommand("calibrate", HTTP_GET, doCalibrate);
+  restCommandHandler.registerCommand("debug", HTTP_GET, doGetDebug);
+  restCommandHandler.registerCommand<int>("moveToPanel", HTTP_POST, {"panelNb"}, doMoveToPanel);
+  restCommandHandler.registerCommand<int>("advancePanels", HTTP_POST, {"count"}, doAdvancePanels);
+  restCommandHandler.registerCommand<int>("advancePulses", HTTP_POST, {"count"}, doAdvancePulses);
+  restCommandHandler.registerCommand("panel", HTTP_GET, doGetCurrentPanel);
+  restCommandHandler.registerCommand("setupStart", HTTP_GET, doSetupGoToZero);
+  restCommandHandler.registerCommand("setupNext", HTTP_GET, doSetupNextPulse);
+  restCommandHandler.registerCommand<int>("setupEnd", HTTP_POST, {"panelNb"}, doSetupSetPanelNb);
+  restCommandHandler.registerCommand("setupCancel", HTTP_GET, doSetupCancel);
 
 
   // REST API routes
-  server.on("/panel", HTTP_GET, handleGetCurrentPanel);  // TODO renommer en virant les gets et les mots panel des actions
-  server.on("/debug", HTTP_GET, handleGetDebug);
-  server.on("/moveToPanel", HTTP_POST, handleMoveToPanel);
-  server.on("/advancePanels", HTTP_POST, handleAdvancePanels);
-  server.on("/advancePulses", HTTP_POST, handleAdvancePulses);
-  server.on("/calibrate", HTTP_GET, handleCalibrate);  // TODO POST pour les actions memes simpes ?
-  server.on("/stop", HTTP_GET, handleStop);
-  server.on("/reset", HTTP_GET, handleReset);
+  // server.on("/panel", HTTP_GET, handleGetCurrentPanel);  // TODO renommer en virant les gets et les mots panel des actions
+  // server.on("/debug", HTTP_GET, handleGetDebug);
+  // server.on("/moveToPanel", HTTP_POST, handleMoveToPanel);
+  // server.on("/advancePanels", HTTP_POST, handleAdvancePanels);
+  // server.on("/advancePulses", HTTP_POST, handleAdvancePulses);
+  // server.on("/calibrate", HTTP_GET, handleCalibrate);  // TODO POST pour les actions memes simpes ?
+  // server.on("/stop", HTTP_GET, handleStop);
+  // server.on("/reset", HTTP_GET, handleReset);
   server.begin();
   Serial.println("HTTP server started");
 
@@ -670,10 +702,10 @@ void setup() {
 }
 
 void loop() {
-      commandHandler.handleSerialCommands();
 
+  commandHandler.handleSerialCommands();
   server.handleClient();  // Handle incoming HTTP requests
-  connectToWiFi();        // Keep it alive
+  //connectToWiFi();        // Keep it alive //TODO Wifi non bloquant
   loopMillis = millis();
   readSensors();  // Read sensors and handle edge detection
   evaluateStateTransitions();
