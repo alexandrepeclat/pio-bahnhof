@@ -56,14 +56,9 @@ const int PANEL_TO_ENCODER_TEETH = 62;  // TODO incorporer dans la formule de PU
 const int PANELS_COUNT = 62;
 const int PULSES_PER_PANEL = ENCODER_RESOLUTION / ENCODER_GEAR_TEETH * ENCODER_PULSES_PER_STEP;
 const int PULSES_COUNT = PANELS_COUNT * PULSES_PER_PANEL;  // Nombre total d'impulsions (2232 par tour de panel. Encodeur tourne 1.55x plus vite que panels, 2232/1.55 = 1440 pulses par tour d'encodeur = 360 steps)
-//  const int DEFAULT_PANEL = 12;                              // 9;                              // Panel at optical sensor position
-//  const int DEFAULT_PANEL_PULSE_OFFSET = 1;                  // 1;                  // Optical sensor is detected at nth pulse of the default panel //TODO Directement calculer un DEFAULT_PULSE via les deux variables et faire en sorte que ce soit dans les limites [0-PULSES_TOTAL]
-//  const int DEFAULT_PULSE = (DEFAULT_PANEL * PULSES_PER_PANEL) + DEFAULT_PANEL_PULSE_OFFSET;
-// static_assert(DEFAULT_PULSE >= 0 && DEFAULT_PULSE < PULSES_COUNT, "DEFAULT_PULSE must be in range [0-PULSES_COUNT]");
 const int ENCODER_DIRECTION_SIGN = 1;  // TODO c'est pas clair si c'est géré par l'interruption sans s'en soucier à la lecture car on en tient compte dans le getter... et on en tient compte 2x dans l'interruption ce qui semble etre faux
 const int TARGET_PULSE_OFFSET = 12;    // When going to target, go to the nth pulse of the target panel //TODO chuis tjrs pas sur que ce soit utile... au moment du passage optique, suffit de lui faire croire qu'il est en avant ou en arrière et ça devrait faire le job pareil
 static_assert(TARGET_PULSE_OFFSET >= 0 && TARGET_PULSE_OFFSET < PULSES_PER_PANEL, "OFFSET must be in range [0-PULSES_PER_PANEL]");
-// static_assert(DEFAULT_PANEL_PULSE_OFFSET >= 0 && DEFAULT_PANEL_PULSE_OFFSET < PULSES_PER_PANEL, "OFFSET must be in range [0-PULSES_PER_PANEL]");
 const int OPTICAL_DETECTED_EDGE = RISING;  // Capteur à 1 quand coupé / 0 quand trou / ralentit quand trou, et calibre sur rising vers coupé
 
 // Servo configuration
@@ -233,13 +228,13 @@ void doSetupNextPulse() {
 }
 
 void doSetupSetPanelNb(int panel) {
-  // TODO reprendre les assertions qui étaient en statique et protéger defaultPulse
   if (currentState != SETUP_WAITING_COMMAND) {
     return;
   }
 
   setCurrentState(STOPPED);
   defaultPulse = (panel * PULSES_PER_PANEL) - getCurrentPulses();
+  assertThis(defaultPulse >= 0 && defaultPulse < PULSES_COUNT, "defaultPulse " + String(defaultPulse) + " out of bounds [0-" + String(PULSES_COUNT) + "]");
   encoderPulses += defaultPulse; //TODO à virer si on gère l'offset dynamiquement ce qui serait pas mal
   saveDefaultPulse();
 }
@@ -355,6 +350,7 @@ String doReset() {
   calibrated = false;
   errorFlag = false;
   errorMessage = "";
+  loadDefaultPulse();
   setCurrentState(STOPPED);
   return "Reset";
 }
@@ -503,7 +499,7 @@ void connectToWiFi() {
 }
 
 void checkForRunningErrors() {
-  // TODO ça fonctionne MAIS avec un délai de 500ms qui me semble très long et y aurait-il moyen d'utiliser la même variable ? problème vu qu'elle est mise à jour à chaque loop, quand le moteur tourne à la loop suivante si le délai est dépassé, ça détecte que ça n'a pas bougé. Voir si alternative possible : https://chatgpt.com/c/678e9109-34b8-8005-ac88-cb9013f09a07
+  // TODO ça fonctionne pas..... avant fonctionnait MAIS avec un délai de 500ms qui me semble très long et y aurait-il moyen d'utiliser la même variable ? problème vu qu'elle est mise à jour à chaque loop, quand le moteur tourne à la loop suivante si le délai est dépassé, ça détecte que ça n'a pas bougé. Voir si alternative possible : https://chatgpt.com/c/678e9109-34b8-8005-ac88-cb9013f09a07
   int motorSpeed = servo.read();
 
   // Detect blockage
@@ -665,7 +661,6 @@ void loop() {
   server.handleClient();  // Handle incoming HTTP requests
   connectToWiFi();        // Keep it alive
   loopMillis = millis();
-  delay(1);
   readSensors();  // Read sensors and handle edge detection
   evaluateStateTransitions();
   processStateActions();
