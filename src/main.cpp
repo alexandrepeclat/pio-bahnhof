@@ -5,6 +5,8 @@
 #include <secrets.h>
 #include <map>
 #include <commandHandler.h>
+#include <restCommandHandler.h>
+
 
 enum AppState {
   EMERGENCY_STOPPED,
@@ -622,6 +624,7 @@ void readSerial() {
 
 // Instance globale pour gérer les commandes
 CommandHandler commandHandler;
+RestCommandHandler restCommandHandler(server);
 
 void setup() {
   assert(!WiFi.getPersistent());
@@ -629,6 +632,7 @@ void setup() {
   Serial.setTimeout(10);
 
   commandHandler.registerCommand<int>("move", doMoveToPanel);
+    restCommandHandler.registerCommand<int>("moveToPanel", HTTP_POST, {"panelNb"}, doMoveToPanel);
 
 
   // REST API routes
