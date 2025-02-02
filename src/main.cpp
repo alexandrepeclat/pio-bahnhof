@@ -1,3 +1,4 @@
+#include <EEPROM.h>
 #include <ESP8266WebServer.h>
 #include <ESP8266WiFi.h>
 #include <Servo.h>
@@ -11,16 +12,13 @@ enum AppState {
   MOVING_TO_TARGET,
   CALIBRATING,
   SETUP_GO_TO_ZERO,
-  SETUP_WAIT_PANEL_NB,
   SETUP_MOVE_PULSE,
-  SETUP_WAIT_PULSE_NB
+  SETUP_WAITING_COMMAND
 };
 
 // Prototypes declaration
 int getCurrentPulses();
 int getCurrentPanel();
-void setCurrentPulses(int pulses);
-void setCurrentPanel(int panel);
 int getTargetPulses();
 String buildDebugJson(String message);
 void sendHeaders();
@@ -58,14 +56,14 @@ const int PANEL_TO_ENCODER_TEETH = 62;  // TODO incorporer dans la formule de PU
 const int PANELS_COUNT = 62;
 const int PULSES_PER_PANEL = ENCODER_RESOLUTION / ENCODER_GEAR_TEETH * ENCODER_PULSES_PER_STEP;
 const int PULSES_COUNT = PANELS_COUNT * PULSES_PER_PANEL;  // Nombre total d'impulsions (2232 par tour de panel. Encodeur tourne 1.55x plus vite que panels, 2232/1.55 = 1440 pulses par tour d'encodeur = 360 steps)
-const int DEFAULT_PANEL = 12;                              // 9;                              // Panel at optical sensor position
-const int DEFAULT_PANEL_PULSE_OFFSET = 1;                  // 1;                  // Optical sensor is detected at nth pulse of the default panel //TODO Directement calculer un DEFAULT_PULSE via les deux variables et faire en sorte que ce soit dans les limites [0-PULSES_TOTAL]
-const int DEFAULT_PULSE = (DEFAULT_PANEL * PULSES_PER_PANEL) + DEFAULT_PANEL_PULSE_OFFSET;
-static_assert(DEFAULT_PULSE >= 0 && DEFAULT_PULSE < PULSES_COUNT, "DEFAULT_PULSE must be in range [0-PULSES_COUNT]");
-const int ENCODER_DIRECTION_SIGN = 1;
-const int TARGET_PULSE_OFFSET = 12;  // When going to target, go to the nth pulse of the target panel //TODO chuis tjrs pas sur que ce soit utile... au moment du passage optique, suffit de lui faire croire qu'il est en avant ou en arrière et ça devrait faire le job pareil
+//  const int DEFAULT_PANEL = 12;                              // 9;                              // Panel at optical sensor position
+//  const int DEFAULT_PANEL_PULSE_OFFSET = 1;                  // 1;                  // Optical sensor is detected at nth pulse of the default panel //TODO Directement calculer un DEFAULT_PULSE via les deux variables et faire en sorte que ce soit dans les limites [0-PULSES_TOTAL]
+//  const int DEFAULT_PULSE = (DEFAULT_PANEL * PULSES_PER_PANEL) + DEFAULT_PANEL_PULSE_OFFSET;
+// static_assert(DEFAULT_PULSE >= 0 && DEFAULT_PULSE < PULSES_COUNT, "DEFAULT_PULSE must be in range [0-PULSES_COUNT]");
+const int ENCODER_DIRECTION_SIGN = 1;  // TODO c'est pas clair si c'est géré par l'interruption sans s'en soucier à la lecture car on en tient compte dans le getter... et on en tient compte 2x dans l'interruption ce qui semble etre faux
+const int TARGET_PULSE_OFFSET = 12;    // When going to target, go to the nth pulse of the target panel //TODO chuis tjrs pas sur que ce soit utile... au moment du passage optique, suffit de lui faire croire qu'il est en avant ou en arrière et ça devrait faire le job pareil
 static_assert(TARGET_PULSE_OFFSET >= 0 && TARGET_PULSE_OFFSET < PULSES_PER_PANEL, "OFFSET must be in range [0-PULSES_PER_PANEL]");
-static_assert(DEFAULT_PANEL_PULSE_OFFSET >= 0 && DEFAULT_PANEL_PULSE_OFFSET < PULSES_PER_PANEL, "OFFSET must be in range [0-PULSES_PER_PANEL]");
+// static_assert(DEFAULT_PANEL_PULSE_OFFSET >= 0 && DEFAULT_PANEL_PULSE_OFFSET < PULSES_PER_PANEL, "OFFSET must be in range [0-PULSES_PER_PANEL]");
 const int OPTICAL_DETECTED_EDGE = RISING;  // Capteur à 1 quand coupé / 0 quand trou / ralentit quand trou, et calibre sur rising vers coupé
 
 // Servo configuration
@@ -75,6 +73,7 @@ const int RUN_SPEED = 140;  // Vitesse du servo pour avancer (91-180) 140 c'est 
 static_assert(RUN_SPEED > 90, "RUN_SPEED must be greater than 90 or everything will break !");
 
 // Globals
+int defaultPulse = 0;
 String command = "";  // Current serial command
 unsigned long loopMillis = 0;
 unsigned long lastLoopMillis = 0;  // Variable to store the last loop time
@@ -134,6 +133,14 @@ void setTargetPanel(int panel) {
   setTargetPulses((panel * PULSES_PER_PANEL) + TARGET_PULSE_OFFSET);
 }
 
+int getDefaultPanel() {
+  return defaultPulse / PULSES_PER_PANEL;
+}
+
+int getDefaultPulseOffset() {
+  return defaultPulse % PULSES_PER_PANEL;
+}
+
 String buildDebugJson(String message) {
   String debugJson = "{";
   debugJson += "\"msg\":\"" + message + "\"" +
@@ -154,6 +161,9 @@ String buildDebugJson(String message) {
                ",\"servo\":" + String(servo.read()) +
                //",\"errorFlag\":" + String(errorFlag) +
                //",\"errorMessage\":\"" + errorMessage + "\"" +
+               ",\"defaultPulse\":" + String(defaultPulse) +
+               ",\"defaultPanel\":" + String(getDefaultPanel()) +
+               ",\"defaultPulseOffset\":" + String(getDefaultPulseOffset()) +
                ",\"state\":" + stateToString(currentState) +
                "}";
   return debugJson;
@@ -180,6 +190,12 @@ String stateToString(AppState state) {
       return "MOVING_TO_TARGET";
     case CALIBRATING:
       return "CALIBRATING";
+    case SETUP_GO_TO_ZERO:
+      return "SETUP_GO_TO_ZERO";
+    case SETUP_MOVE_PULSE:
+      return "SETUP_MOVE_PULSE";
+    case SETUP_WAITING_COMMAND:
+      return "SETUP_WAITING_COMMAND";
     default:
       return "UNKNOWN";
   }
@@ -189,7 +205,49 @@ void setCurrentState(AppState newState) {
   currentState = newState;
 }
 
+void saveDefaultPulse() {
+  EEPROM.write(0, defaultPulse);
+  EEPROM.commit();
+}
+
+void loadDefaultPulse() {
+  defaultPulse = EEPROM.read(0);
+}
+
 // Functions
+
+void doSetupGoToZero() {
+  calibrated = false;  // TODO Voir si c'ets bien de réutiliser la même var
+  defaultPulse = 0;    // Reset default pulse
+  setCurrentState(SETUP_GO_TO_ZERO);
+}
+
+void doSetupNextPulse() {
+  if (currentState != SETUP_WAITING_COMMAND) {
+    return;
+  }
+  setCurrentState(SETUP_MOVE_PULSE);
+  targetPulses = (getCurrentPulses() + 1) % PULSES_COUNT;
+  Serial.println("Next pulse: " + String(targetPulses));
+  // Will make currentPulses increment
+}
+
+void doSetupSetPanelNb(int panel) {
+  // TODO reprendre les assertions qui étaient en statique et protéger defaultPulse
+  if (currentState != SETUP_WAITING_COMMAND) {
+    return;
+  }
+
+  setCurrentState(STOPPED);
+  defaultPulse = (panel * PULSES_PER_PANEL) - getCurrentPulses();
+  encoderPulses += defaultPulse; //TODO à virer si on gère l'offset dynamiquement ce qui serait pas mal
+  saveDefaultPulse();
+}
+
+void doSetupCancel() {
+  setCurrentState(STOPPED);
+  loadDefaultPulse();
+}
 
 void sendHeaders() {
   server.sendHeader("Access-Control-Allow-Origin", "*");
@@ -282,9 +340,8 @@ void handleCalibrate() {
 String doStop() {
   setMotorSpeed(0);          // Use the centralized function to stop the motor
   setCurrentState(STOPPED);  // Set motor mode to stopped
-  int currentPanel = getCurrentPanel();
-  setTargetPanel(currentPanel);
-  return "Stopped. Current panel set to " + String(currentPanel);
+  setTargetPulses(getCurrentPulses());
+  return "Stopped. Current panel set to " + String(getCurrentPanel());
 }
 
 void handleStop() {
@@ -313,19 +370,19 @@ int getRemainingPulses() {
   return (targetPulses - currentPulses + PULSES_COUNT) % PULSES_COUNT;  // Calcule la distance en avance (horaire)
 }
 
-bool isTargetPanelReached() {
+bool isTargetPulseReached() {
   return getRemainingPulses() == 0;
 }
 
 float calculateSpeedSetup() {
-  return 0.1f;
+  return 0.15f;
 }
 
 float calculateSpeedCalibration() {
   if (OPTICAL_DETECTED_EDGE == RISING) {
-    return sensorState == LOW ? 0.3f : 0.6f;  // Half speed when we are about to detect the 2nd edge
+    return sensorState == LOW ? 0.3f : 1.f;  // Half speed when we are about to detect the 2nd edge
   } else {
-    return sensorState == HIGH ? 0.3f : 0.6f;
+    return sensorState == HIGH ? 0.3f : 1.f;
   }
 }
 
@@ -335,9 +392,9 @@ float calculateSpeedMovingToTarget() {
     return 0.f;
   } else if (remainingPulses <= PULSES_PER_PANEL) {
     return 0.3f;
-  } else if (remainingPulses <= PULSES_PER_PANEL * 3) {
+  } else if (remainingPulses <= PULSES_PER_PANEL * 2) {
     return 0.5f;
-  } else if (remainingPulses <= PULSES_PER_PANEL * 5) {
+  } else if (remainingPulses <= PULSES_PER_PANEL * 3) {
     return 0.7f;
   } else {
     return 1.0f;  // Constant speed accross all panels
@@ -363,7 +420,7 @@ void evaluateStateTransitions() {
       if (!calibrated) {
         setCurrentState(AUTO_CALIBRATING);
       }
-      if (isTargetPanelReached()) {
+      if (isTargetPulseReached()) {
         setCurrentState(STOPPED);
       }
       break;
@@ -372,6 +429,22 @@ void evaluateStateTransitions() {
       if (calibrated) {
         setCurrentState(STOPPED);  // TODO Go to panel 0 instead via MOVING_TO_TARGET ? (attention pas changer les valeurs de quoi que ce soit ici en principe mais à voir)
       }
+      break;
+    }
+    case SETUP_GO_TO_ZERO: {
+      if (calibrated) {
+        setCurrentState(SETUP_WAITING_COMMAND);
+      }
+      break;
+    }
+    case SETUP_MOVE_PULSE: {
+      if (isTargetPulseReached()) {
+        setCurrentState(SETUP_WAITING_COMMAND);
+      }
+      break;
+    }
+    case SETUP_WAITING_COMMAND: {
+      // Wait for next pulse command
       break;
     }
   }
@@ -396,6 +469,18 @@ void processStateActions() {
       float speed = calculateSpeedCalibration();
       setMotorSpeed(speed);
     } break;
+    case SETUP_GO_TO_ZERO: {
+      float speed = calculateSpeedCalibration();
+      setMotorSpeed(speed);
+    } break;
+    case SETUP_MOVE_PULSE: {
+      float speed = calculateSpeedSetup();
+      setMotorSpeed(speed);
+    } break;
+    case SETUP_WAITING_COMMAND: {
+      setMotorSpeed(0);
+      break;
+    }
   }
 }
 
@@ -470,7 +555,7 @@ void IRAM_ATTR handleEncoderInterrupt() {
       (DETECTED_STATE == HIGH && sensorState == LOW && lastSensorState == HIGH)) {
     opticalDetectedEdgesCount++;
     opticalDetectedPulses = encoderPulses % PULSES_COUNT;
-    encoderPulses = DEFAULT_PULSE * ENCODER_DIRECTION_SIGN;
+    encoderPulses = defaultPulse * ENCODER_DIRECTION_SIGN;
     encoderPulsesRaw = 0;
     calibrated = true;
   }
@@ -510,6 +595,19 @@ void handleSerialCommand(String command) {
   } else if (command == "currentPanel") {
     int panel = doGetCurrentPanel();
     Serial.println("Current panel: " + String(panel));
+  } else if (command == "setupGoToZero") {
+    doSetupGoToZero();
+    Serial.println("Setup: Go to zero");
+  } else if (command == "setupNextPulse") {
+    doSetupNextPulse();
+    Serial.println("Setup: Next pulse");
+  } else if (command.startsWith("setupSetPanelNb")) {
+    int panel = command.substring(command.indexOf(' ') + 1).toInt();
+    doSetupSetPanelNb(panel);
+    Serial.println("Setup: Set panel number " + String(panel));
+  } else if (command == "setupCancel") {
+    doSetupCancel();
+    Serial.println("Setup: Cancel");
   } else {
     Serial.println("Unknown command: -" + command + "-");
   }
@@ -543,6 +641,10 @@ void setup() {
   server.on("/reset", HTTP_GET, handleReset);
   server.begin();
   Serial.println("HTTP server started");
+
+  // Read setup values from EEPROM
+  EEPROM.begin(256);
+  loadDefaultPulse();
 
   // Servo setup
   servo.attach(SERVO_PIN);
