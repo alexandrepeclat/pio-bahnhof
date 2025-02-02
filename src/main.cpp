@@ -59,36 +59,40 @@ const int PULSES_COUNT = PANELS_COUNT * PULSES_PER_PANEL;  // Nombre total d'imp
 const int ENCODER_DIRECTION_SIGN = 1;  // TODO c'est pas clair si c'est géré par l'interruption sans s'en soucier à la lecture car on en tient compte dans le getter... et on en tient compte 2x dans l'interruption ce qui semble etre faux
 const int TARGET_PULSE_OFFSET = 12;    // When going to target, go to the nth pulse of the target panel //TODO chuis tjrs pas sur que ce soit utile... au moment du passage optique, suffit de lui faire croire qu'il est en avant ou en arrière et ça devrait faire le job pareil
 static_assert(TARGET_PULSE_OFFSET >= 0 && TARGET_PULSE_OFFSET < PULSES_PER_PANEL, "OFFSET must be in range [0-PULSES_PER_PANEL]");
-const int OPTICAL_DETECTED_EDGE = RISING;  // Capteur à 1 quand coupé / 0 quand trou / ralentit quand trou, et calibre sur rising vers coupé
-
-// Servo configuration
-Servo servo;
-const int STOP_SPEED = 90;  // Valeur pour arrêter le servo
-const int RUN_SPEED = 140;  // Vitesse du servo pour avancer (91-180) 140 c'est bien (met 6 secondes à faire un tour)
-static_assert(RUN_SPEED > 90, "RUN_SPEED must be greater than 90 or everything will break !");
 
 // Globals
-int defaultPulse = 0;
 String command = "";  // Current serial command
 unsigned long loopMillis = 0;
 unsigned long lastLoopMillis = 0;  // Variable to store the last loop time
 ESP8266WebServer server(80);
-volatile bool sensorState = LOW;
 bool errorFlag = false;    // Emergency stop flag
 String errorMessage = "";  // Emergency stop message
 volatile AppState currentState = STOPPED;
-int targetPulses = 0;  // New targetPulses property
 volatile bool calibrated = false;
-const bool DETECTED_STATE = LOW;             // Define the detected state for the optical sensor
-volatile bool lastSensorState = HIGH;        // Initialize to HIGH (not detected)
-const unsigned long BLOCKAGE_TIMEOUT = 500;  // Timeout in milliseconds to detect blockage
-volatile int opticalDetectedPulses = 0;
-volatile int opticalDetectedEdgesCount = 0;
+
+// Encoder
+int defaultPulse = 0;
+int targetPulses = 0;  // New targetPulses property
 volatile int encoderInterruptCallCount = 0;
 volatile uint8_t encoderState = 0;
 volatile int encoderPulses = 0;
 volatile int encoderPulsesRaw = 0;
-const int8_t ENCODER_STATE_TABLE[16] = {0, 1, -1, -0, -1, 0, -0, 1, 1, -0, 0, -1, -0, -1, 1, 0};  // Encoder state table for natural debouncing
+const int8_t ENCODER_STATE_TABLE[16] = {0, 1, -1, -0, -1, 0, -0, 1, 1, -0, 0, -1, -0, -1, 1, 0};  // Encoder state table for natural debouncing (-0 are non valid states)
+
+// Optical sensor
+const int OPTICAL_DETECTED_EDGE = RISING;  // Capteur à 1 quand coupé / 0 quand trou / ralentit quand trou, et calibre sur rising vers coupé
+const bool OPTICAL_DETECTED_STATE = LOW;             // Define the detected state for the optical sensor
+volatile bool opticalState = LOW;
+volatile bool opticalLastState = HIGH;        // Initialize to HIGH (not detected)
+volatile int opticalDetectedPulses = 0;
+volatile int opticalDetectedEdgesCount = 0;
+
+// Servo
+Servo servo;
+const int STOP_SPEED = 90;  // Valeur pour arrêter le servo
+const int RUN_SPEED = 140;  // Vitesse du servo pour avancer (91-180) 140 c'est bien (met 6 secondes à faire un tour)
+static_assert(RUN_SPEED > 90, "RUN_SPEED must be greater than 90 or everything will break !");
+const unsigned long BLOCKAGE_TIMEOUT = 500;  // Timeout in milliseconds to detect blockage
 
 #ifdef DEBUG_ENABLED
 std::map<String, String> lastDebugMessages;  // Map to store the last debug messages
@@ -144,7 +148,7 @@ String buildDebugJson(String message) {
                ",\"currentPulses\":" + String(getCurrentPulses()) +
                ",\"targetPanel\":" + String(getTargetPanel()) +
                ",\"targetPulses\":" + String(getTargetPulses()) +
-               ",\"optical\":" + String(sensorState) +
+               ",\"optical\":" + String(opticalState) +
                ",\"odPulses\":" + String(opticalDetectedPulses) +
                ",\"odCount\":" + String(opticalDetectedEdgesCount) +
                ",\"encPulses\":" + String(encoderPulses) +
@@ -376,9 +380,9 @@ float calculateSpeedSetup() {
 
 float calculateSpeedCalibration() {
   if (OPTICAL_DETECTED_EDGE == RISING) {
-    return sensorState == LOW ? 0.3f : 1.f;  // Half speed when we are about to detect the 2nd edge
+    return opticalState == LOW ? 0.3f : 1.f;  // Half speed when we are about to detect the 2nd edge
   } else {
-    return sensorState == HIGH ? 0.3f : 1.f;
+    return opticalState == HIGH ? 0.3f : 1.f;
   }
 }
 
@@ -481,7 +485,7 @@ void processStateActions() {
 }
 
 void readSensors() {
-  sensorState = digitalRead(OPTICAL_SENSOR_PIN);
+  opticalState = digitalRead(OPTICAL_SENSOR_PIN);
 }
 
 void connectToWiFi() {
@@ -546,16 +550,16 @@ void IRAM_ATTR handleEncoderInterrupt() {
     return;
 
   // Check if the optical sensor detected an edge
-  sensorState = (GPIO_REG_READ(GPIO_IN_ADDRESS) >> OPTICAL_SENSOR_PIN) & 1;
-  if ((DETECTED_STATE == LOW && sensorState == HIGH && lastSensorState == LOW) ||
-      (DETECTED_STATE == HIGH && sensorState == LOW && lastSensorState == HIGH)) {
+  opticalState = (GPIO_REG_READ(GPIO_IN_ADDRESS) >> OPTICAL_SENSOR_PIN) & 1;
+  if ((OPTICAL_DETECTED_STATE == LOW && opticalState == HIGH && opticalLastState == LOW) ||
+      (OPTICAL_DETECTED_STATE == HIGH && opticalState == LOW && opticalLastState == HIGH)) {
     opticalDetectedEdgesCount++;
     opticalDetectedPulses = encoderPulses % PULSES_COUNT;
     encoderPulses = defaultPulse * ENCODER_DIRECTION_SIGN;
     encoderPulsesRaw = 0;
     calibrated = true;
   }
-  lastSensorState = sensorState;
+  opticalLastState = opticalState;
 
   // Check if the target is reached
   if (currentState == MOVING_TO_TARGET && targetPulses == (encoderPulses * ENCODER_DIRECTION_SIGN) % PULSES_COUNT) {

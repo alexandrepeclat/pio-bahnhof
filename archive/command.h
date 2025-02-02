@@ -1,3 +1,11 @@
+/*
+Tentative de classe générique pour gérer les commandes depuis le Serial et le REST API.
+- Trop tordu et complexe, trop overkill pour le besoin
+- Validation des paramètres trop générique
+- Difficile à suivre en lecture de code statique
+*/
+
+
 #include <ESP8266WebServer.h>
 #include <ESP8266WiFi.h>
 #include <unordered_map>
