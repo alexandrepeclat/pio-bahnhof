@@ -80,7 +80,6 @@ const int8_t ENCODER_STATE_TABLE[16] = {0, 1, -1, -0, -1, 0, -0, 1, 1, -0, 0, -1
 
 // Optical sensor
 const int OPTICAL_DETECTED_EDGE = RISING;  // Capteur à 1 quand coupé / 0 quand trou / ralentit quand trou, et calibre sur rising vers coupé
-const bool OPTICAL_DETECTED_STATE = LOW;   // Define the detected state for the optical sensor
 volatile bool opticalState = LOW;
 volatile bool opticalLastState = HIGH;  // Initialize to HIGH (not detected)
 volatile int opticalDetectedPulses = 0;
@@ -488,10 +487,10 @@ void IRAM_ATTR handleEncoderInterrupt() {
 
   // Check if the optical sensor detected an edge
   opticalState = (GPIO_REG_READ(GPIO_IN_ADDRESS) >> OPTICAL_SENSOR_PIN) & 1;
-  if ((OPTICAL_DETECTED_STATE == LOW && opticalState == HIGH && opticalLastState == LOW) ||
-      (OPTICAL_DETECTED_STATE == HIGH && opticalState == LOW && opticalLastState == HIGH)) {
+  if ((OPTICAL_DETECTED_EDGE == RISING && opticalLastState == LOW && opticalState == HIGH) ||
+      (OPTICAL_DETECTED_EDGE == FALLING && opticalLastState == HIGH && opticalState == LOW)) {
     opticalDetectedEdgesCount++;
-    opticalDetectedPulses = encoderPulses % PULSES_COUNT;
+    opticalDetectedPulses = encoderPulses % PULSES_COUNT; //TODO virer opticalDetectedPulses et mettre un msg warning si n'est pas = à defaultPulse
     encoderPulses = defaultPulse * ENCODER_DIRECTION_SIGN;
     encoderPulsesRaw = 0;
     calibrated = true;
@@ -500,7 +499,7 @@ void IRAM_ATTR handleEncoderInterrupt() {
 
   // Check if the target is reached
   if (currentState == MOVING_TO_TARGET && targetPulses == (encoderPulses * ENCODER_DIRECTION_SIGN) % PULSES_COUNT) {
-    currentState = STOPPED;
+    currentState = STOPPED; //TODO pas fan de traiter la transition d'état ici... et on le fait aussi dans la loop
   }
 }
 
