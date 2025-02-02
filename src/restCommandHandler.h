@@ -36,8 +36,8 @@ class RestCommandHandler {
 
   // Enregistrer une commande REST avec 1 argument
   template <typename Arg1>
-  void registerCommand(const String& endpoint, HTTPMethod method, const std::vector<String>& args, std::function<String(Arg1)> callback) {
-    _server.on("/" + endpoint, method, [this, callback, args, method]() {
+  void registerCommand(const String& endpoint, HTTPMethod method, const std::vector<String>& paramNames, std::function<String(Arg1)> callback) {
+    _server.on("/" + endpoint, method, [this, callback, paramNames, method]() {
       sendHeaders();
       // Vérifier si la méthode correspond
       if (_server.method() != method) {
@@ -46,11 +46,11 @@ class RestCommandHandler {
       }
 
       // Vérification des arguments
-      if (args.size() != 1) {
+      if (paramNames.size() != 1) { //TODO C'est faux, ici on voudrait vérifier les paramètres du serveur et non les noms des paramètres lors du register (d'ailleurs ce check manque au moment du register)
         _server.send(400, "text/plain", "Bad Request: incorrect number of arguments");
         return;
       }
-      String param = _server.arg(args[0]);
+      String param = _server.arg(paramNames[0]);
       if (param.length() == 0) {
         _server.send(400, "text/plain", "Bad Request: missing argument");
         return;
@@ -58,7 +58,7 @@ class RestCommandHandler {
 
       // Conversion et appel du callback
       try {
-        Arg1 arg1 = convertArgument<Arg1>(param);  // Conversion
+        Arg1 arg1 = convertArgument<Arg1>(param.c_str());  // Conversion
         String response = callback(arg1);
         _server.send(200, "text/plain", response);
       } catch (const std::invalid_argument& e) {
@@ -71,21 +71,21 @@ class RestCommandHandler {
 
   // Enregistrer une commande REST avec 2 arguments
   template <typename Arg1, typename Arg2>
-  void registerCommand(const String& endpoint, HTTPMethod method, const std::vector<String>& args, std::function<String(Arg1, Arg2)> callback) {
-    _server.on("/" + endpoint, method, [this, callback, args, method]() {
+  void registerCommand(const String& endpoint, HTTPMethod method, const std::vector<String>& paramNames, std::function<String(Arg1, Arg2)> callback) {
+    _server.on("/" + endpoint, method, [this, callback, paramNames, method]() {
       sendHeaders();
       if (_server.method() != method) {
         _server.send(405, "text/plain", "Method Not Allowed");
         return;
       }
 
-      if (args.size() != 2) {
+      if (paramNames.size() != 2) {
         _server.send(400, "text/plain", "Bad Request: incorrect number of arguments");
         return;
       }
 
-      String param1 = _server.arg(args[0]);
-      String param2 = _server.arg(args[1]);
+      String param1 = _server.arg(paramNames[0]);
+      String param2 = _server.arg(paramNames[1]);
       if (param1.length() == 0 || param2.length() == 0) {
         _server.send(400, "text/plain", "Bad Request: missing argument");
         return;
@@ -107,22 +107,22 @@ class RestCommandHandler {
 
   // Enregistrer une commande REST avec 3 arguments
   template <typename Arg1, typename Arg2, typename Arg3>
-  void registerCommand(const String& endpoint, HTTPMethod method, const std::vector<String>& args, std::function<String(Arg1, Arg2, Arg3)> callback) {
-    _server.on("/" + endpoint, method, [this, callback, args, method]() {
+  void registerCommand(const String& endpoint, HTTPMethod method, const std::vector<String>& paramNames, std::function<String(Arg1, Arg2, Arg3)> callback) {
+    _server.on("/" + endpoint, method, [this, callback, paramNames, method]() {
       sendHeaders();
       if (_server.method() != method) {
         _server.send(405, "text/plain", "Method Not Allowed");
         return;
       }
 
-      if (args.size() != 3) {
+      if (paramNames.size() != 3) {
         _server.send(400, "text/plain", "Bad Request: incorrect number of arguments");
         return;
       }
 
-      String param1 = _server.arg(args[0]);
-      String param2 = _server.arg(args[1]);
-      String param3 = _server.arg(args[2]);
+      String param1 = _server.arg(paramNames[0]);
+      String param2 = _server.arg(paramNames[1]);
+      String param3 = _server.arg(paramNames[2]);
       if (param1.length() == 0 || param2.length() == 0 || param3.length() == 0) {
         _server.send(400, "text/plain", "Bad Request: missing argument");
         return;
