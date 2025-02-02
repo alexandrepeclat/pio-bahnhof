@@ -9,11 +9,7 @@
 - Alim externe + fiche
 
  ### TODO SOFTWARE :
- https:github.com/madhephaestus/ESP32Encoder (complet et avec interruptions)
- https:github.com/sandy9159/How-to-connect-optical-rotary-encoder-with-Arduino (pas quadrature mais directionnel)
- TODO ON DOIT tenir compte d'un certain offset pour savoir si on a atteint le target car quand la boucle stoppe le moteur, c'est déjà dépassé de quelques steps
- - Ou alors voir si on gère le stop dans les interruptions encodeur..... tout est dans les interruptions chais pas trop si c'est bien...
- TODO ça semble se mettre en veille au bout d'un moment......
+ TODO ça semble se mettre en veille au bout d'un moment...... mais ça semble réglé
  TODO réorganiser la détection d'erreurs
  - on a emergencyStop et assertThis un peu interchangeables
  - on a des checks sur des getters ou à des moments dans la logique du code et dans les fonctions dédiées...
@@ -25,17 +21,30 @@
  TODO s'assurer que tous les "getters" utilisés notamment dans les debug ne change pas les états ou valeurs :-)
  TODO état ERROR ? en même temps le flag reste nécessaire car il garantit qu'on peut pas setter à nouveau autre chose via transition ou autre... mais la boucle continue de tourner et calculer des trucs pour rien...
  TODO Vérifier les valeurs passées depuis l'api un peu mieux en terme de limites et type
- TODO go to rising/falling edges via API ?
- TODO API avec commandes plus poussées sur même endpoint ? par ex pour aider à définir les offsets
- - positionner par incréments de steps le panneau 0 à son tout début
- - lancer moteur jusqu'à l'optique et récupérer la valeur de l'encodeur à ce moment
- - calculer la pulse courante (attention au sens) et les constantes DEFAULT...
- - en tenant compte de l'offset et en remettant l'encodeur à 0 on obtient le panel courant et on peut vérifier si c'est OK
  TODO API pour donner la liste des villes ? Dépend du matos après-tout par contre on va pas fournir les traductions pour la reconnaissance vocale ?
- TODO API pour donner la liste des commandes possibles ?
- TODO Commande pour lister les commandes possibles ?
+ TODO API pour donner la liste des commandes possibles ? + Commande pour lister les commandes possibles ?
  TODO Refactorer selon un pattern "Command" ? on a une interface qui impose de retourner un nom (pour route et commande), une méthode d'exécution, une méthode de décodage (voire exécution) de l'appel rest, une méthode de décodage (et validation, voire exécution) de l'appel sérial. ça mixe un peu la logique REST/Serial/action mais plus extensible
  TODO sécuriser API ?
+
+
+ ### Procédure de calibration
+- setupGoToZero
+  - Appeler pour démarrer la procédure
+  - Va jusqu'au front montant optique
+  - Set currentPulses = 0
+  - Set defaultPulse = 0
+- setupNextPulse
+  - Appeler plusieurs fois jusqu'à ce que le panneau change physiquement (non compris)
+  - Avance d'une pulse (ou 2 en pratique)
+  - Set currentPulses++
+- setupSetPanelNb 13
+  - Appeler une fois que le panneau a changé en indiquant le no du nouveau panneau
+  - Set currentPulses += 13 * 24 (on dit au système d'avancer de 13 panels car on n'était pas au panel 0 avant)
+  - Set defaultPulse = (13 * 24) - currentPulses (maintenant qu'on sait qu'on est à panel 13 pulse ~0, l'optique était currentPulses avant)
+
+### Useful doc
+- Lib encoder esp32 (multi modes dont quadrature, avec interruptions) : https:github.com/madhephaestus/ESP32Encoder 
+- Exemple encoder (pas quadrature mais directionnel) : https:github.com/sandy9159/How-to-connect-optical-rotary-encoder-with-Arduino
 
 ### Shitty issues 
 - Optical encoder 38s6g5 needs >= 5V https://forum.arduino.cc/t/fyi-interfacing-e38s6g5-600b-g24n-600p-r-rotary-encoder/1057892

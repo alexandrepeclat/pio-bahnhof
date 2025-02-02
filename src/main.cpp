@@ -48,16 +48,11 @@ void assertThis(bool condition, T&& message) {
 #define OPTICAL_SENSOR_PIN D6  // Pin pour le capteur optique
 
 // Constants
-const int ENCODER_RESOLUTION = 360;
-const int ENCODER_GEAR_TEETH = 60;
-const int ENCODER_PULSES_PER_STEP = 4;  // Quadrature
-const int PANEL_TO_ENCODER_TEETH = 62;  // TODO incorporer dans la formule de PULSES_PER_PANEL
-
 const int PANELS_COUNT = 62;
-const int PULSES_PER_PANEL = ENCODER_RESOLUTION / ENCODER_GEAR_TEETH * ENCODER_PULSES_PER_STEP;
+const int PULSES_PER_PANEL = 24; //ENCODER_RESOLUTION / ENCODER_GEAR_TEETH * ENCODER_PULSES_PER_STEP = 360 / 60 * 4 = 24
 const int PULSES_COUNT = PANELS_COUNT * PULSES_PER_PANEL;  // Nombre total d'impulsions (2232 par tour de panel. Encodeur tourne 1.55x plus vite que panels, 2232/1.55 = 1440 pulses par tour d'encodeur = 360 steps)
 const int ENCODER_DIRECTION_SIGN = 1;  // TODO c'est pas clair si c'est géré par l'interruption sans s'en soucier à la lecture car on en tient compte dans le getter... et on en tient compte 2x dans l'interruption ce qui semble etre faux
-const int TARGET_PULSE_OFFSET = 12;    // When going to target, go to the nth pulse of the target panel //TODO chuis tjrs pas sur que ce soit utile... au moment du passage optique, suffit de lui faire croire qu'il est en avant ou en arrière et ça devrait faire le job pareil
+const int TARGET_PULSE_OFFSET = 12;    // When going to target, go to the nth pulse of the target panel
 static_assert(TARGET_PULSE_OFFSET >= 0 && TARGET_PULSE_OFFSET < PULSES_PER_PANEL, "OFFSET must be in range [0-PULSES_PER_PANEL]");
 
 // Globals
@@ -227,7 +222,7 @@ void doSetupNextPulse() {
   }
   setCurrentState(SETUP_MOVE_PULSE);
   targetPulses = (getCurrentPulses() + 1) % PULSES_COUNT;
-  Serial.println("Next pulse: " + String(targetPulses));
+  Serial.println("Next pulse: " + String(targetPulses)); //TODO retourner message depuis les méthodes d'action
   // Will make currentPulses increment
 }
 
@@ -239,7 +234,7 @@ void doSetupSetPanelNb(int panel) {
   setCurrentState(STOPPED);
   defaultPulse = (panel * PULSES_PER_PANEL) - getCurrentPulses();
   assertThis(defaultPulse >= 0 && defaultPulse < PULSES_COUNT, "defaultPulse " + String(defaultPulse) + " out of bounds [0-" + String(PULSES_COUNT) + "]");
-  encoderPulses += defaultPulse; //TODO à virer si on gère l'offset dynamiquement ce qui serait pas mal
+  encoderPulses += defaultPulse; //TODO à virer si on gère l'offset dynamiquement ce qui serait pas mal ET SURTOUT ne pas placer cette ligne avant defaultPulse=...
   saveDefaultPulse();
 }
 
