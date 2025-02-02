@@ -16,17 +16,6 @@ class RestCommandHandler {
   void registerCommand(const String& endpoint, HTTPMethod method, std::function<String()> callback) {
     _server.on("/" + endpoint, method, [this, callback, method]() {
       sendHeaders();
-      // Vérifier si la méthode correspond
-      if (_server.method() != method) {
-        _server.send(405, "text/plain", "Method Not Allowed");
-        return;
-      }
-
-      // Vérifier qu'il n'y a pas d'arguments
-      if (_server.args() > 0) {
-        _server.send(400, "text/plain", "Bad Request: too many arguments");
-        return;
-      }
 
       // Appel du callback
       String response = callback();
@@ -37,19 +26,12 @@ class RestCommandHandler {
   // Enregistrer une commande REST avec 1 argument
   template <typename Arg1>
   void registerCommand(const String& endpoint, HTTPMethod method, const std::vector<String>& paramNames, std::function<String(Arg1)> callback) {
-    _server.on("/" + endpoint, method, [this, callback, paramNames, method]() {
+    assert(paramNames.size() == 1);
+
+    _server.on("/" + endpoint, method, [this, callback, paramNames]() {
       sendHeaders();
-      // Vérifier si la méthode correspond
-      if (_server.method() != method) {
-        _server.send(405, "text/plain", "Method Not Allowed");
-        return;
-      }
 
       // Vérification des arguments
-      if (paramNames.size() != 1) { //TODO C'est faux, ici on voudrait vérifier les paramètres du serveur et non les noms des paramètres lors du register (d'ailleurs ce check manque au moment du register)
-        _server.send(400, "text/plain", "Bad Request: incorrect number of arguments");
-        return;
-      }
       String param = _server.arg(paramNames[0]);
       if (param.length() == 0) {
         _server.send(400, "text/plain", "Bad Request: missing argument");
@@ -72,18 +54,12 @@ class RestCommandHandler {
   // Enregistrer une commande REST avec 2 arguments
   template <typename Arg1, typename Arg2>
   void registerCommand(const String& endpoint, HTTPMethod method, const std::vector<String>& paramNames, std::function<String(Arg1, Arg2)> callback) {
-    _server.on("/" + endpoint, method, [this, callback, paramNames, method]() {
+    assert(paramNames.size() == 2);
+
+    _server.on("/" + endpoint, method, [this, callback, paramNames]() {
       sendHeaders();
-      if (_server.method() != method) {
-        _server.send(405, "text/plain", "Method Not Allowed");
-        return;
-      }
 
-      if (paramNames.size() != 2) {
-        _server.send(400, "text/plain", "Bad Request: incorrect number of arguments");
-        return;
-      }
-
+      // Vérification des arguments
       String param1 = _server.arg(paramNames[0]);
       String param2 = _server.arg(paramNames[1]);
       if (param1.length() == 0 || param2.length() == 0) {
@@ -108,18 +84,12 @@ class RestCommandHandler {
   // Enregistrer une commande REST avec 3 arguments
   template <typename Arg1, typename Arg2, typename Arg3>
   void registerCommand(const String& endpoint, HTTPMethod method, const std::vector<String>& paramNames, std::function<String(Arg1, Arg2, Arg3)> callback) {
-    _server.on("/" + endpoint, method, [this, callback, paramNames, method]() {
+    assert(paramNames.size() == 3);
+
+    _server.on("/" + endpoint, method, [this, callback, paramNames]() {
       sendHeaders();
-      if (_server.method() != method) {
-        _server.send(405, "text/plain", "Method Not Allowed");
-        return;
-      }
-
-      if (paramNames.size() != 3) {
-        _server.send(400, "text/plain", "Bad Request: incorrect number of arguments");
-        return;
-      }
-
+      
+      // Vérification des arguments
       String param1 = _server.arg(paramNames[0]);
       String param2 = _server.arg(paramNames[1]);
       String param3 = _server.arg(paramNames[2]);
