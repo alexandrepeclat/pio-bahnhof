@@ -57,9 +57,15 @@ class RestCommandHandler {
       }
 
       // Conversion et appel du callback
-      Arg1 arg1 = convertArgument<Arg1>(param.c_str());
-      String response = callback(arg1);
-      _server.send(200, "text/plain", response);
+      try {
+        Arg1 arg1 = convertArgument<Arg1>(param);  // Conversion
+        String response = callback(arg1);
+        _server.send(200, "text/plain", response);
+      } catch (const std::invalid_argument& e) {
+        _server.send(400, "text/plain", "Erreur de conversion: " + String(e.what()));
+      } catch (const std::out_of_range& e) {
+        _server.send(400, "text/plain", "Erreur: valeur hors plage: " + String(e.what()));
+      }
     });
   }
 
@@ -86,10 +92,16 @@ class RestCommandHandler {
       }
 
       // Conversion et appel du callback
-      Arg1 arg1 = convertArgument<Arg1>(param1.c_str());
-      Arg2 arg2 = convertArgument<Arg2>(param2.c_str());
-      String response = callback(arg1, arg2);
-      _server.send(200, "text/plain", response);
+      try {
+        Arg1 arg1 = convertArgument<Arg1>(param1.c_str());
+        Arg2 arg2 = convertArgument<Arg2>(param2.c_str());
+        String response = callback(arg1, arg2);
+        _server.send(200, "text/plain", response);
+      } catch (const std::invalid_argument& e) {
+        _server.send(400, "text/plain", "Erreur de conversion: " + String(e.what()));
+      } catch (const std::out_of_range& e) {
+        _server.send(400, "text/plain", "Erreur: valeur hors plage: " + String(e.what()));
+      }
     });
   }
 
@@ -117,11 +129,17 @@ class RestCommandHandler {
       }
 
       // Conversion et appel du callback
-      Arg1 arg1 = convertArgument<Arg1>(param1.c_str());
-      Arg2 arg2 = convertArgument<Arg2>(param2.c_str());
-      Arg3 arg3 = convertArgument<Arg3>(param3.c_str());
-      String response = callback(arg1, arg2, arg3);
-      _server.send(200, "text/plain", response);
+      try {
+        Arg1 arg1 = convertArgument<Arg1>(param1.c_str());
+        Arg2 arg2 = convertArgument<Arg2>(param2.c_str());
+        Arg3 arg3 = convertArgument<Arg3>(param3.c_str());
+        String response = callback(arg1, arg2, arg3);
+        _server.send(200, "text/plain", response);
+      } catch (const std::invalid_argument& e) {
+        _server.send(400, "text/plain", "Erreur de conversion: " + String(e.what()));
+      } catch (const std::out_of_range& e) {
+        _server.send(400, "text/plain", "Erreur: valeur hors plage: " + String(e.what()));
+      }
     });
   }
 

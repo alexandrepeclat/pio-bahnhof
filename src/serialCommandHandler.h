@@ -6,6 +6,8 @@
 #include <type_traits>
 #include <vector>
 
+//TODO factoriser tout ce code ? 
+
 // Classe pour gérer l'enregistrement et l'appel des commandes
 class SerialCommandHandler {
  public:
@@ -30,9 +32,15 @@ class SerialCommandHandler {
         Serial.println("Erreur: mauvais nombre d'arguments.");
         return;
       }
-      Arg1 arg1 = convertArgument<Arg1>(args[0]);  // Conversion
-      String response = callback(arg1);
-      Serial.println(response);
+      try {
+        Arg1 arg1 = convertArgument<Arg1>(args[0]);  // Conversion
+        String response = callback(arg1);
+        Serial.println(response);
+      } catch (const std::invalid_argument& e) {
+        Serial.println("Erreur de conversion: " + String(e.what()));
+      } catch (const std::out_of_range& e) {
+        Serial.println("Erreur: valeur hors plage: " + String(e.what()));
+      }
     };
   }
 
@@ -44,10 +52,16 @@ class SerialCommandHandler {
         Serial.println("Erreur: mauvais nombre d'arguments.");
         return;
       }
-      Arg1 arg1 = convertArgument<Arg1>(args[0]);  // Conversion
-      Arg2 arg2 = convertArgument<Arg2>(args[1]);  // Conversion
-      String response = callback(arg1, arg2);
-      Serial.println(response);
+      try {
+        Arg1 arg1 = convertArgument<Arg1>(args[0]);  // Conversion
+        Arg2 arg2 = convertArgument<Arg2>(args[1]);  // Conversion
+        String response = callback(arg1, arg2);
+        Serial.println(response);
+      } catch (const std::invalid_argument& e) {
+        Serial.println("Erreur de conversion: " + String(e.what()));
+      } catch (const std::out_of_range& e) {
+        Serial.println("Erreur: valeur hors plage: " + String(e.what()));
+      }
     };
   }
 
@@ -59,11 +73,17 @@ class SerialCommandHandler {
         Serial.println("Erreur: mauvais nombre d'arguments.");
         return;
       }
-      Arg1 arg1 = convertArgument<Arg1>(args[0]);  // Conversion
-      Arg2 arg2 = convertArgument<Arg2>(args[1]);  // Conversion
-      Arg3 arg3 = convertArgument<Arg3>(args[2]);  // Conversion
-      String response = callback(arg1, arg2, arg3);
-      Serial.println(response);
+      try {
+        Arg1 arg1 = convertArgument<Arg1>(args[0]);  // Conversion
+        Arg2 arg2 = convertArgument<Arg2>(args[1]);  // Conversion
+        Arg3 arg3 = convertArgument<Arg3>(args[2]);  // Conversion
+        String response = callback(arg1, arg2, arg3);
+        Serial.println(response);
+      } catch (const std::invalid_argument& e) {
+        Serial.println("Erreur de conversion: " + String(e.what()));
+      } catch (const std::out_of_range& e) {
+        Serial.println("Erreur: valeur hors plage: " + String(e.what()));
+      }
     };
   }
 
