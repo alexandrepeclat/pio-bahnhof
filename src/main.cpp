@@ -4,6 +4,7 @@
 #include <Servo.h>
 #include <secrets.h>
 #include <map>
+#include <commandHandler.h>
 
 enum AppState {
   EMERGENCY_STOPPED,
@@ -619,10 +620,16 @@ void readSerial() {
   }
 }
 
+// Instance globale pour gérer les commandes
+CommandHandler commandHandler;
+
 void setup() {
   assert(!WiFi.getPersistent());
   Serial.begin(115200);
   Serial.setTimeout(10);
+
+  commandHandler.registerCommand<int>("move", doMoveToPanel);
+
 
   // REST API routes
   server.on("/panel", HTTP_GET, handleGetCurrentPanel);  // TODO renommer en virant les gets et les mots panel des actions
@@ -656,6 +663,8 @@ void setup() {
 }
 
 void loop() {
+      commandHandler.handleSerialCommands();
+
   server.handleClient();  // Handle incoming HTTP requests
   connectToWiFi();        // Keep it alive
   loopMillis = millis();
@@ -663,7 +672,7 @@ void loop() {
   evaluateStateTransitions();
   processStateActions();
   checkForRunningErrors();  // Check for blockages anc co
-  readSerial();             // Read and handle serial commands
+  //readSerial();             // Read and handle serial commands
 
 #ifdef DEBUG_ENABLED
   serialPrintThrottled("ALL", buildDebugJson(""));
