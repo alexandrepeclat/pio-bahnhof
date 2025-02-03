@@ -6,7 +6,10 @@
 #include <type_traits>
 #include <vector>
 
-//TODO factoriser tout ce code ? 
+// TODO factoriser tout ce code ?
+// TODO Mettre en commun les conversions d'argument et les appels au callback définitif ? 
+// TODO Reprendre les conversion sur restHandler
+// TODO utiliser les string arduino ?
 
 // Classe pour gérer l'enregistrement et l'appel des commandes
 class SerialCommandHandler {
@@ -32,15 +35,13 @@ class SerialCommandHandler {
         Serial.println("Erreur: mauvais nombre d'arguments.");
         return;
       }
-      try {
-        Arg1 arg1 = convertArgument<Arg1>(args[0]);  // Conversion
-        String response = callback(arg1);
-        Serial.println(response);
-      } catch (const std::invalid_argument& e) {
-        Serial.println("Erreur de conversion: " + String(e.what()));
-      } catch (const std::out_of_range& e) {
-        Serial.println("Erreur: valeur hors plage: " + String(e.what()));
+      Arg1 arg1;
+      if (!convertArgument<Arg1>(args[0], arg1)) {
+        Serial.println("Erreur de conversion pour l'argument 1: " + String(args[0].c_str()));
+        return;
       }
+      String response = callback(arg1);
+      Serial.println(response);
     };
   }
 
@@ -52,16 +53,18 @@ class SerialCommandHandler {
         Serial.println("Erreur: mauvais nombre d'arguments.");
         return;
       }
-      try {
-        Arg1 arg1 = convertArgument<Arg1>(args[0]);  // Conversion
-        Arg2 arg2 = convertArgument<Arg2>(args[1]);  // Conversion
-        String response = callback(arg1, arg2);
-        Serial.println(response);
-      } catch (const std::invalid_argument& e) {
-        Serial.println("Erreur de conversion: " + String(e.what()));
-      } catch (const std::out_of_range& e) {
-        Serial.println("Erreur: valeur hors plage: " + String(e.what()));
+      Arg1 arg1;
+      Arg2 arg2;
+      if (!convertArgument<Arg1>(args[0], arg1)) {
+        Serial.println("Erreur de conversion pour l'argument 1: " + String(args[0].c_str()));
+        return;
       }
+      if (!convertArgument<Arg2>(args[1], arg2)) {
+        Serial.println("Erreur de conversion pour l'argument 2: " + String(args[1].c_str()));
+        return;
+      }
+      String response = callback(arg1, arg2);
+      Serial.println(response);
     };
   }
 
@@ -73,17 +76,23 @@ class SerialCommandHandler {
         Serial.println("Erreur: mauvais nombre d'arguments.");
         return;
       }
-      try {
-        Arg1 arg1 = convertArgument<Arg1>(args[0]);  // Conversion
-        Arg2 arg2 = convertArgument<Arg2>(args[1]);  // Conversion
-        Arg3 arg3 = convertArgument<Arg3>(args[2]);  // Conversion
-        String response = callback(arg1, arg2, arg3);
-        Serial.println(response);
-      } catch (const std::invalid_argument& e) {
-        Serial.println("Erreur de conversion: " + String(e.what()));
-      } catch (const std::out_of_range& e) {
-        Serial.println("Erreur: valeur hors plage: " + String(e.what()));
+      Arg1 arg1;
+      Arg2 arg2;
+      Arg3 arg3;
+      if (!convertArgument<Arg1>(args[0], arg1)) {
+        Serial.println("Erreur de conversion pour l'argument 1: " + String(args[0].c_str()));
+        return;
       }
+      if (!convertArgument<Arg2>(args[1], arg2)) {
+        Serial.println("Erreur de conversion pour l'argument 2: " + String(args[1].c_str()));
+        return;
+      }
+      if (!convertArgument<Arg3>(args[2], arg3)) {
+        Serial.println("Erreur de conversion pour l'argument 3: " + String(args[2].c_str()));
+        return;
+      }
+      String response = callback(arg1, arg2, arg3);
+      Serial.println(response);
     };
   }
 
@@ -140,13 +149,27 @@ class SerialCommandHandler {
 
   // Conversion des arguments en fonction de leur type
   template <typename T>
-  T convertArgument(const std::string& arg) {
+  bool convertArgument(const std::string& arg, T& outValue) {
+    std::istringstream iss(arg);
+
     if constexpr (std::is_same_v<T, int>) {
-      return std::stoi(arg);
+      int temp;
+      if (!(iss >> temp))
+        return false;  // Vérifie la conversion
+      if (!iss.eof())
+        return false;  // Vérifie qu'il n'y a pas de caractères restants
+      outValue = temp;
     } else if constexpr (std::is_same_v<T, float>) {
-      return std::stof(arg);
+      float temp;
+      if (!(iss >> temp))
+        return false;  // Vérifie la conversion
+      if (!iss.eof())
+        return false;  // Vérifie qu'il n'y a pas de caractères restants
+      outValue = temp;
     } else {
-      return arg;  // pour le cas des strings
+      outValue = arg;  // Pour les strings, pas besoin de conversion
     }
+
+    return true;  // Conversion réussie
   }
 };
