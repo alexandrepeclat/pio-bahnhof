@@ -65,8 +65,8 @@ volatile AppState currentState = STOPPED;
 volatile bool calibrated = false;
 SerialCommandHandler serialCommandHandler;
 RestCommandHandler restCommandHandler(server);
-// TODO méthodes de conversion plantent si mauvais argument
-// TODO faire un mégaHandler qui prend les autres en paramètre et boucle dessus
+// TODO méthodes de conversion plantent si mauvais argument TESTER CAR CORRIGé
+// TODO faire un mégaHandler qui prend les autres en paramètre et boucle dessus ? OU PAS
 // TODO fonctions pour lister les commandes et API avec params
 
 // Encoder
@@ -211,6 +211,14 @@ void loadDefaultPulse() {
 }
 
 // Functions
+
+String doSetupManual(int pulse) {
+  defaultPulse = pulse;
+  assertThis(defaultPulse >= 0 && defaultPulse < PULSES_COUNT, "defaultPulse " + String(defaultPulse) + " out of bounds [0-" + String(PULSES_COUNT) + "]");
+  encoderPulses += defaultPulse;  // TODO à virer si on gère l'offset dynamiquement ce qui serait pas mal ET SURTOUT ne pas placer cette ligne avant defaultPulse=...
+  saveDefaultPulse();
+  return "Setup completed. Default pulse set to " + String(defaultPulse) + ". Default panel is " + String(getDefaultPanel()) + " with offset " + String(getDefaultPulseOffset());
+}
 
 String doSetupGoToZero() {
   calibrated = false;  // TODO Voir si c'ets bien de réutiliser la même var
@@ -490,7 +498,7 @@ void IRAM_ATTR handleEncoderInterrupt() {
   if ((OPTICAL_DETECTED_EDGE == RISING && opticalLastState == LOW && opticalState == HIGH) ||
       (OPTICAL_DETECTED_EDGE == FALLING && opticalLastState == HIGH && opticalState == LOW)) {
     opticalDetectedEdgesCount++;
-    opticalDetectedPulses = encoderPulses % PULSES_COUNT; //TODO virer opticalDetectedPulses et mettre un msg warning si n'est pas = à defaultPulse
+    opticalDetectedPulses = encoderPulses % PULSES_COUNT;  // TODO virer opticalDetectedPulses et mettre un msg warning si n'est pas = à defaultPulse
     encoderPulses = defaultPulse * ENCODER_DIRECTION_SIGN;
     encoderPulsesRaw = 0;
     calibrated = true;
@@ -499,7 +507,7 @@ void IRAM_ATTR handleEncoderInterrupt() {
 
   // Check if the target is reached
   if (currentState == MOVING_TO_TARGET && targetPulses == (encoderPulses * ENCODER_DIRECTION_SIGN) % PULSES_COUNT) {
-    currentState = STOPPED; //TODO pas fan de traiter la transition d'état ici... et on le fait aussi dans la loop
+    currentState = STOPPED;  // TODO pas fan de traiter la transition d'état ici... et on le fait aussi dans la loop
   }
 }
 
@@ -521,6 +529,7 @@ void setup() {
   serialCommandHandler.registerCommand("setupNext", doSetupNextPulse);
   serialCommandHandler.registerCommand<int>("setupEnd", doSetupSetPanelNb);
   serialCommandHandler.registerCommand("setupCancel", doSetupCancel);
+  serialCommandHandler.registerCommand<int>("setupManual", doSetupManual);
 
   // Register REST API routes
   restCommandHandler.registerCommand("stop", HTTP_GET, doStop);
@@ -535,6 +544,8 @@ void setup() {
   restCommandHandler.registerCommand("setupNext", HTTP_GET, doSetupNextPulse);
   restCommandHandler.registerCommand<int>("setupEnd", HTTP_POST, {"panel"}, doSetupSetPanelNb);
   restCommandHandler.registerCommand("setupCancel", HTTP_GET, doSetupCancel);
+  restCommandHandler.registerCommand<int>("setupManual", HTTP_POST, {"pulse"}, doSetupManual);
+
 
   server.begin();
   Serial.println("HTTP server started");
