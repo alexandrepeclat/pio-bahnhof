@@ -50,9 +50,9 @@ void assertThis(bool condition, T&& message) {
 // Constants
 const int PANELS_COUNT = 62;
 const int PULSES_PER_PANEL = 24;                           // ENCODER_RESOLUTION / ENCODER_GEAR_TEETH * ENCODER_PULSES_PER_STEP = 360 / 60 * 4 = 24
-const int PULSES_COUNT = PANELS_COUNT * PULSES_PER_PANEL;  // Nombre total d'impulsions (2232 par tour de panel. Encodeur tourne 1.55x plus vite que panels, 2232/1.55 = 1440 pulses par tour d'encodeur = 360 steps)
+const int PULSES_COUNT = PANELS_COUNT * PULSES_PER_PANEL;  // Nombre total d'impulsions
 const int ENCODER_DIRECTION_SIGN = 1;                      // TODO c'est pas clair si c'est géré par l'interruption sans s'en soucier à la lecture car on en tient compte dans le getter... et on en tient compte 2x dans l'interruption ce qui semble etre faux
-const int TARGET_PULSE_OFFSET = 12;                        // When going to target, go to the nth pulse of the target panel
+const int TARGET_PULSE_OFFSET = 12;                        // When setting a target panel, use the nth pulse of this panel for centering
 static_assert(TARGET_PULSE_OFFSET >= 0 && TARGET_PULSE_OFFSET < PULSES_PER_PANEL, "OFFSET must be in range [0-PULSES_PER_PANEL]");
 
 // Globals
@@ -65,8 +65,6 @@ volatile AppState currentState = STOPPED;
 volatile bool calibrated = false;
 SerialCommandHandler serialCommandHandler;
 RestCommandHandler restCommandHandler(server);
-// TODO faire un mégaHandler qui prend les autres en paramètre et boucle dessus ? OU PAS
-// TODO fonctions pour lister les commandes et API avec params
 
 // Encoder
 int defaultPulse = 0;
@@ -295,7 +293,8 @@ String doAdvancePulses(int pulseCount) {
 String doCalibrate() {
   setCurrentState(CALIBRATING);  // Set motor mode for calibration
   calibrated = false;
-  return "Calibration started. Rotating until optical sensor edge is detected.";
+  setTargetPanel(0);
+  return "Calibration started. Rotating until optical sensor edge is detected, then going to panel 0";
 }
 
 String doStop() {
@@ -378,7 +377,7 @@ void evaluateStateTransitions() {
     }
     case CALIBRATING: {
       if (calibrated) {
-        setCurrentState(STOPPED);  // TODO Go to panel 0 instead via MOVING_TO_TARGET ? (attention pas changer les valeurs de quoi que ce soit ici en principe mais à voir)
+        setCurrentState(MOVING_TO_TARGET); 
       }
       break;
     }
@@ -395,7 +394,6 @@ void evaluateStateTransitions() {
       break;
     }
     case SETUP_WAITING_COMMAND: {
-      // Wait for next pulse command
       break;
     }
   }
