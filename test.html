@@ -181,6 +181,7 @@
         <button onclick="setupCancel()">setupCancel</button>
         <input type="number" id="setupManualInput" placeholder="Enter Pulse Offset" value="289">
         <button onclick="setupManual()">setupManual</button>
+        <button onclick="help()">Help</button>
 
         <p id="responseMessage"></p>
 
@@ -322,6 +323,10 @@
                 return;
             }
             apiRequest('/setupManual', 'POST', { pulse });
+        }
+
+        function help() {
+            apiRequest('/help');
         }
     </script>
 </body>

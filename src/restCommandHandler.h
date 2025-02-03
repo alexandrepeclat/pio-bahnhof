@@ -23,6 +23,7 @@ class RestCommandHandler {
       String response = callback();
       _server.send(200, "text/plain", response);
     });
+    _routes.push_back({endpoint, method, {}});
   }
 
   // Enregistrer une commande REST avec 1 argument
@@ -49,6 +50,7 @@ class RestCommandHandler {
       String response = callback(arg1);
         _server.send(200, "text/plain", response);
     });
+    _routes.push_back({endpoint, method, paramNames});
   }
 
   // Enregistrer une commande REST avec 2 arguments
@@ -81,6 +83,7 @@ class RestCommandHandler {
       String response = callback(arg1, arg2);
         _server.send(200, "text/plain", response);
     });
+    _routes.push_back({endpoint, method, paramNames});
   }
 
   // Enregistrer une commande REST avec 3 arguments
@@ -119,14 +122,47 @@ class RestCommandHandler {
       String response = callback(arg1, arg2, arg3);
         _server.send(200, "text/plain", response);
     });
+    _routes.push_back({endpoint, method, paramNames});
   }
 
   void handleClient() {
     _server.handleClient();  // Handle incoming HTTP requests
   }
 
+  // Retrieve the list of API routes with method and parameters
+  String getRoutesList() {
+    String list = "[";
+    for (const auto& route : _routes) {
+      list += "{";
+      list += "\"endpoint\":\"/" + route.endpoint + "\",";
+      list += "\"method\":\"" + methodToString(route.method) + "\",";
+      list += "\"params\":[";
+      for (const auto& param : route.params) {
+        list += "\"" + param + "\",";
+      }
+      if (!route.params.empty()) {
+        list.remove(list.length() - 1);  // Remove trailing comma
+      }
+      list += "]";
+      list += "},";
+    }
+    if (!_routes.empty()) {
+      list.remove(list.length() - 1);  // Remove trailing comma
+    }
+    list += "]";
+    return list;
+  }
+
  private:
   ESP8266WebServer& _server;  // Référence au serveur pour l'enregistrement des routes
+
+  struct Route {
+    String endpoint;
+    HTTPMethod method;
+    std::vector<String> params;
+  };
+
+  std::vector<Route> _routes;  // List of registered routes
 
   void sendHeaders() {
     _server.sendHeader("Access-Control-Allow-Origin", "*");
@@ -156,5 +192,25 @@ class RestCommandHandler {
     }
 
     return true;  // Conversion réussie
+  }
+
+  // Convert HTTPMethod to String
+  String methodToString(HTTPMethod method) {
+    switch (method) {
+      case HTTP_GET:
+        return "GET";
+      case HTTP_POST:
+        return "POST";
+      case HTTP_PUT:
+        return "PUT";
+      case HTTP_PATCH:
+        return "PATCH";
+      case HTTP_DELETE:
+        return "DELETE";
+      case HTTP_OPTIONS:
+        return "OPTIONS";
+      default:
+        return "UNKNOWN";
+    }
   }
 };

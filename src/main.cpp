@@ -65,7 +65,6 @@ volatile AppState currentState = STOPPED;
 volatile bool calibrated = false;
 SerialCommandHandler serialCommandHandler;
 RestCommandHandler restCommandHandler(server);
-// TODO méthodes de conversion plantent si mauvais argument TESTER CAR CORRIGé
 // TODO faire un mégaHandler qui prend les autres en paramètre et boucle dessus ? OU PAS
 // TODO fonctions pour lister les commandes et API avec params
 
@@ -211,6 +210,10 @@ void loadDefaultPulse() {
 }
 
 // Functions
+
+String doGetRestRoutes() {
+  return restCommandHandler.getRoutesList();
+}
 
 String doSetupManual(int pulse) {
   defaultPulse = pulse;
@@ -545,6 +548,7 @@ void setup() {
   restCommandHandler.registerCommand<int>("setupEnd", HTTP_POST, {"panel"}, doSetupSetPanelNb);
   restCommandHandler.registerCommand("setupCancel", HTTP_GET, doSetupCancel);
   restCommandHandler.registerCommand<int>("setupManual", HTTP_POST, {"pulse"}, doSetupManual);
+  restCommandHandler.registerCommand("help", HTTP_GET, doGetRestRoutes);
 
 
   server.begin();
