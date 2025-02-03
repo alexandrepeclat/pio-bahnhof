@@ -6,6 +6,8 @@
 #include <type_traits>
 #include <vector>
 
+//TODO utiliser AsyncWebServer ?
+
 class RestCommandHandler {
  public:
   // Constructeur qui prend une référence à l'ESP8266WebServer
@@ -40,7 +42,7 @@ class RestCommandHandler {
 
       // Conversion et appel du callback
       Arg1 arg1;
-      if (!convertArgument<Arg1>(param.c_str(), arg1)) {
+      if (!convertArgument<Arg1>(param, arg1)) {
         _server.send(400, "text/plain", "Erreur de conversion pour l'argument " + paramNames[0] + " : " + param);
         return;
       }
@@ -68,15 +70,15 @@ class RestCommandHandler {
       // Conversion et appel du callback
       Arg1 arg1;
       Arg2 arg2;
-      if (!convertArgument<Arg1>(param1.c_str(), arg1)) {
+      if (!convertArgument<Arg1>(param1, arg1)) {
         _server.send(400, "text/plain", "Erreur de conversion pour l'argument " + paramNames[0] + " : " + param1);
         return;
       }
-      if (!convertArgument<Arg2>(param2.c_str(), arg2)) {
+      if (!convertArgument<Arg2>(param2, arg2)) {
         _server.send(400, "text/plain", "Erreur de conversion pour l'argument " + paramNames[1] + " : " + param2);
         return;
       }
-      String response = callback(arg1.c_str(), arg2);
+      String response = callback(arg1, arg2);
         _server.send(200, "text/plain", response);
     });
   }
@@ -102,15 +104,15 @@ class RestCommandHandler {
       Arg1 arg1;
       Arg2 arg2;
       Arg3 arg3;
-      if (!convertArgument<Arg1>(param1.c_str(), arg1)) {
+      if (!convertArgument<Arg1>(param1, arg1)) {
         _server.send(400, "text/plain", "Erreur de conversion pour l'argument " + paramNames[0] + " : " + param1);
         return;
       }
-      if (!convertArgument<Arg2>(param2.c_str(), arg2)) {
+      if (!convertArgument<Arg2>(param2, arg2)) {
         _server.send(400, "text/plain", "Erreur de conversion pour l'argument " + paramNames[1] + " : " + param2);
         return;
       }
-      if (!convertArgument<Arg3>(param3.c_str(), arg3)) {
+      if (!convertArgument<Arg3>(param3, arg3)) {
         _server.send(400, "text/plain", "Erreur de conversion pour l'argument " + paramNames[2] + " : " + param3);
         return;
       }
@@ -132,8 +134,8 @@ class RestCommandHandler {
 
   // Conversion des arguments en fonction de leur type
   template <typename T>
-  bool convertArgument(const std::string& arg, T& outValue) {
-    std::istringstream iss(arg);
+  bool convertArgument(const String& arg, T& outValue) {
+    std::istringstream iss(arg.c_str());
 
     if constexpr (std::is_same_v<T, int>) {
       int temp;

@@ -15,8 +15,8 @@
 class SerialCommandHandler {
  public:
   // Enregistrer une commande sans argument
-  void registerCommand(const std::string& command, std::function<String()> callback) {
-    _commandCallbacks[command] = [this, callback](const std::vector<std::string>& args) {
+  void registerCommand(const String& command, std::function<String()> callback) {
+    _commandCallbacks[command] = [this, callback](const std::vector<String>& args) {
       Serial.println("args size: " + String(args.size()));
       if (!args.empty()) {
         Serial.println("Erreur: trop d'arguments.");
@@ -29,15 +29,15 @@ class SerialCommandHandler {
 
   // Enregistrer une commande avec 1 argument
   template <typename Arg1>
-  void registerCommand(const std::string& command, std::function<String(Arg1)> callback) {
-    _commandCallbacks[command] = [this, callback](const std::vector<std::string>& args) {
+  void registerCommand(const String& command, std::function<String(Arg1)> callback) {
+    _commandCallbacks[command] = [this, callback](const std::vector<String>& args) {
       if (args.size() != 1) {
         Serial.println("Erreur: mauvais nombre d'arguments.");
         return;
       }
       Arg1 arg1;
       if (!convertArgument<Arg1>(args[0], arg1)) {
-        Serial.println("Erreur de conversion pour l'argument 1: " + String(args[0].c_str()));
+        Serial.println("Erreur de conversion pour l'argument 1: " + args[0]);
         return;
       }
       String response = callback(arg1);
@@ -47,8 +47,8 @@ class SerialCommandHandler {
 
   // Enregistrer une commande avec 2 arguments
   template <typename Arg1, typename Arg2>
-  void registerCommand(const std::string& command, std::function<String(Arg1, Arg2)> callback) {
-    _commandCallbacks[command] = [this, callback](const std::vector<std::string>& args) {
+  void registerCommand(const String& command, std::function<String(Arg1, Arg2)> callback) {
+    _commandCallbacks[command] = [this, callback](const std::vector<String>& args) {
       if (args.size() != 2) {
         Serial.println("Erreur: mauvais nombre d'arguments.");
         return;
@@ -56,11 +56,11 @@ class SerialCommandHandler {
       Arg1 arg1;
       Arg2 arg2;
       if (!convertArgument<Arg1>(args[0], arg1)) {
-        Serial.println("Erreur de conversion pour l'argument 1: " + String(args[0].c_str()));
+        Serial.println("Erreur de conversion pour l'argument 1: " + args[0]);
         return;
       }
       if (!convertArgument<Arg2>(args[1], arg2)) {
-        Serial.println("Erreur de conversion pour l'argument 2: " + String(args[1].c_str()));
+        Serial.println("Erreur de conversion pour l'argument 2: " + args[1]);
         return;
       }
       String response = callback(arg1, arg2);
@@ -70,8 +70,8 @@ class SerialCommandHandler {
 
   // Enregistrer une commande avec 3 arguments
   template <typename Arg1, typename Arg2, typename Arg3>
-  void registerCommand(const std::string& command, std::function<String(Arg1, Arg2, Arg3)> callback) {
-    _commandCallbacks[command] = [this, callback](const std::vector<std::string>& args) {
+  void registerCommand(const String& command, std::function<String(Arg1, Arg2, Arg3)> callback) {
+    _commandCallbacks[command] = [this, callback](const std::vector<String>& args) {
       if (args.size() != 3) {
         Serial.println("Erreur: mauvais nombre d'arguments.");
         return;
@@ -80,15 +80,15 @@ class SerialCommandHandler {
       Arg2 arg2;
       Arg3 arg3;
       if (!convertArgument<Arg1>(args[0], arg1)) {
-        Serial.println("Erreur de conversion pour l'argument 1: " + String(args[0].c_str()));
+        Serial.println("Erreur de conversion pour l'argument 1: " + args[0]);
         return;
       }
       if (!convertArgument<Arg2>(args[1], arg2)) {
-        Serial.println("Erreur de conversion pour l'argument 2: " + String(args[1].c_str()));
+        Serial.println("Erreur de conversion pour l'argument 2: " + args[1]);
         return;
       }
       if (!convertArgument<Arg3>(args[2], arg3)) {
-        Serial.println("Erreur de conversion pour l'argument 3: " + String(args[2].c_str()));
+        Serial.println("Erreur de conversion pour l'argument 3: " + args[2]);
         return;
       }
       String response = callback(arg1, arg2, arg3);
@@ -121,27 +121,35 @@ class SerialCommandHandler {
   }
 
  private:
-  std::map<std::string, std::function<void(const std::vector<std::string>&)>> _commandCallbacks;
+  std::map<String, std::function<void(const std::vector<String>&)>> _commandCallbacks;
 
   // Traitement de la commande
   void processCommand(const String& commandStr) {
-    std::istringstream iss(commandStr.c_str());
-    std::vector<std::string> tokens;
-    std::string token;
+    std::vector<String> tokens;
+    String command;
+    int start = 0;
 
-    while (iss >> token) {  // Découpe en mots en ignorant les espaces multiples
-      tokens.push_back(token);
+    // Découpe la commande en tokens en utilisant l'espace comme séparateur
+    while (true) {
+      int spaceIndex = commandStr.indexOf(' ', start);
+      if (spaceIndex == -1) {
+        tokens.push_back(commandStr.substring(start));  // Dernier token
+        break;
+      }
+      tokens.push_back(commandStr.substring(start, spaceIndex));
+      start = spaceIndex + 1;
     }
 
     if (tokens.empty())
       return;  // Ignore les lignes vides
 
-    std::string command = tokens[0];
-    std::vector<std::string> args(tokens.begin() + 1, tokens.end());  // Récupère tous les arguments (éventuellement vide)
+    command = tokens[0];
+    std::vector<String> args(tokens.begin() + 1, tokens.end());  // Récupère tous les arguments
 
+    // Recherche de la commande dans la map
     auto it = _commandCallbacks.find(command);
     if (it != _commandCallbacks.end()) {
-      it->second(args);  // Envoie une liste vide si pas d'arguments
+      it->second(args);  // Envoie les arguments
     } else {
       Serial.println("Commande inconnue.");
     }
@@ -149,8 +157,8 @@ class SerialCommandHandler {
 
   // Conversion des arguments en fonction de leur type
   template <typename T>
-  bool convertArgument(const std::string& arg, T& outValue) {
-    std::istringstream iss(arg);
+  bool convertArgument(const String& arg, T& outValue) {
+    std::istringstream iss(arg.c_str());
 
     if constexpr (std::is_same_v<T, int>) {
       int temp;
