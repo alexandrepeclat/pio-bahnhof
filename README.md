@@ -20,10 +20,8 @@
  - vérifier qu'on a bien atteint le nombre de steps max au moment du passage et afficher un warning sinon
  TODO s'assurer que tous les "getters" utilisés notamment dans les debug ne change pas les états ou valeurs :-)
  TODO état ERROR ? en même temps le flag reste nécessaire car il garantit qu'on peut pas setter à nouveau autre chose via transition ou autre... mais la boucle continue de tourner et calculer des trucs pour rien...
- TODO Vérifier les valeurs passées depuis l'api un peu mieux en terme de limites et type
+ TODO Vérifier les valeurs passées depuis l'api un peu mieux en terme de limites
  TODO API pour donner la liste des villes ? Dépend du matos après-tout par contre on va pas fournir les traductions pour la reconnaissance vocale ?
- TODO API pour donner la liste des commandes possibles ? + Commande pour lister les commandes possibles ?
- TODO Refactorer selon un pattern "Command" ? on a une interface qui impose de retourner un nom (pour route et commande), une méthode d'exécution, une méthode de décodage (voire exécution) de l'appel rest, une méthode de décodage (et validation, voire exécution) de l'appel sérial. ça mixe un peu la logique REST/Serial/action mais plus extensible
  TODO sécuriser API ?
 
 

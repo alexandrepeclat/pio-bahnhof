@@ -215,6 +215,10 @@ String doGetRestRoutes() {
   return restCommandHandler.getRoutesList();
 }
 
+String doGetSerialCommands() {
+  return serialCommandHandler.getCommandsList();
+}
+
 String doSetupManual(int pulse) {
   defaultPulse = pulse;
   assertThis(defaultPulse >= 0 && defaultPulse < PULSES_COUNT, "defaultPulse " + String(defaultPulse) + " out of bounds [0-" + String(PULSES_COUNT) + "]");
@@ -524,15 +528,16 @@ void setup() {
   serialCommandHandler.registerCommand("reset", doReset);
   serialCommandHandler.registerCommand("calibrate", doCalibrate);
   serialCommandHandler.registerCommand("debug", doGetDebug);
-  serialCommandHandler.registerCommand<int>("moveToPanel", doMoveToPanel);
-  serialCommandHandler.registerCommand<int>("advancePanels", doAdvancePanels);
-  serialCommandHandler.registerCommand<int>("advancePulses", doAdvancePulses);
+  serialCommandHandler.registerCommand<int>("moveToPanel", {"panel"}, doMoveToPanel);
+  serialCommandHandler.registerCommand<int>("advancePanels", {"count"}, doAdvancePanels);
+  serialCommandHandler.registerCommand<int>("advancePulses", {"count"}, doAdvancePulses);
   serialCommandHandler.registerCommand("panel", doGetCurrentPanel);
   serialCommandHandler.registerCommand("setupStart", doSetupGoToZero);
   serialCommandHandler.registerCommand("setupNext", doSetupNextPulse);
-  serialCommandHandler.registerCommand<int>("setupEnd", doSetupSetPanelNb);
+  serialCommandHandler.registerCommand<int>("setupEnd", {"panel"}, doSetupSetPanelNb);
   serialCommandHandler.registerCommand("setupCancel", doSetupCancel);
-  serialCommandHandler.registerCommand<int>("setupManual", doSetupManual);
+  serialCommandHandler.registerCommand<int>("setupManual", {"pulse"}, doSetupManual);
+  serialCommandHandler.registerCommand("help", doGetSerialCommands);
 
   // Register REST API routes
   restCommandHandler.registerCommand("stop", HTTP_GET, doStop);

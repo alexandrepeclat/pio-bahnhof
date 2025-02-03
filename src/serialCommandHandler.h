@@ -8,29 +8,26 @@
 
 // TODO factoriser tout ce code ?
 // TODO Mettre en commun les conversions d'argument et les appels au callback définitif ? 
-// TODO Reprendre les conversion sur restHandler
-// TODO utiliser les string arduino ?
 
 // Classe pour gérer l'enregistrement et l'appel des commandes
 class SerialCommandHandler {
  public:
   // Enregistrer une commande sans argument
   void registerCommand(const String& command, std::function<String()> callback) {
-    _commandCallbacks[command] = [this, callback](const std::vector<String>& args) {
-      Serial.println("args size: " + String(args.size()));
+    _commandCallbacks[command] = { [this, callback](const std::vector<String>& args) {
       if (!args.empty()) {
         Serial.println("Erreur: trop d'arguments.");
         return;
       }
       String response = callback();
       Serial.println(response);
-    };
+    }, {} };
   }
 
   // Enregistrer une commande avec 1 argument
   template <typename Arg1>
-  void registerCommand(const String& command, std::function<String(Arg1)> callback) {
-    _commandCallbacks[command] = [this, callback](const std::vector<String>& args) {
+  void registerCommand(const String& command, const std::vector<String>& paramNames, std::function<String(Arg1)> callback) {
+    _commandCallbacks[command] = { [this, callback](const std::vector<String>& args) {
       if (args.size() != 1) {
         Serial.println("Erreur: mauvais nombre d'arguments.");
         return;
@@ -42,13 +39,13 @@ class SerialCommandHandler {
       }
       String response = callback(arg1);
       Serial.println(response);
-    };
+    }, paramNames };
   }
 
   // Enregistrer une commande avec 2 arguments
   template <typename Arg1, typename Arg2>
-  void registerCommand(const String& command, std::function<String(Arg1, Arg2)> callback) {
-    _commandCallbacks[command] = [this, callback](const std::vector<String>& args) {
+  void registerCommand(const String& command, const std::vector<String>& paramNames, std::function<String(Arg1, Arg2)> callback) {
+    _commandCallbacks[command] = { [this, callback](const std::vector<String>& args) {
       if (args.size() != 2) {
         Serial.println("Erreur: mauvais nombre d'arguments.");
         return;
@@ -65,13 +62,13 @@ class SerialCommandHandler {
       }
       String response = callback(arg1, arg2);
       Serial.println(response);
-    };
+    }, paramNames };
   }
 
   // Enregistrer une commande avec 3 arguments
   template <typename Arg1, typename Arg2, typename Arg3>
-  void registerCommand(const String& command, std::function<String(Arg1, Arg2, Arg3)> callback) {
-    _commandCallbacks[command] = [this, callback](const std::vector<String>& args) {
+  void registerCommand(const String& command, const std::vector<String>& paramNames, std::function<String(Arg1, Arg2, Arg3)> callback) {
+    _commandCallbacks[command] = { [this, callback](const std::vector<String>& args) {
       if (args.size() != 3) {
         Serial.println("Erreur: mauvais nombre d'arguments.");
         return;
@@ -93,10 +90,22 @@ class SerialCommandHandler {
       }
       String response = callback(arg1, arg2, arg3);
       Serial.println(response);
-    };
+    }, paramNames };
   }
 
-  // Gérer les commandes série
+  String getCommandsList() const {
+    String list = "";
+    for (const auto& command : _commandCallbacks) {
+      list += command.first;
+      for (const auto& param : command.second.paramNames) {
+        list += " {" + param + "}";
+      }
+      list += "\n";
+    }
+    return list;
+  }
+
+   // Gérer les commandes série
   void handleSerial() {
     static String command = "";
 
@@ -121,39 +130,42 @@ class SerialCommandHandler {
   }
 
  private:
-  std::map<String, std::function<void(const std::vector<String>&)>> _commandCallbacks;
+  struct CommandCallback {
+    std::function<void(const std::vector<String>&)> callback;
+    std::vector<String> paramNames;
+  };
+  std::map<String, CommandCallback> _commandCallbacks;
+
+ 
 
   // Traitement de la commande
   void processCommand(const String& commandStr) {
-    std::vector<String> tokens;
-    String command;
-    int start = 0;
 
-    // Découpe la commande en tokens en utilisant l'espace comme séparateur
-    while (true) {
-      int spaceIndex = commandStr.indexOf(' ', start);
-      if (spaceIndex == -1) {
-        tokens.push_back(commandStr.substring(start));  // Dernier token
-        break;
-      }
-      tokens.push_back(commandStr.substring(start, spaceIndex));
-      start = spaceIndex + 1;
+    std::vector<String> tokens;
+    std::string token;
+
+    // Lire chaque token jusqu'à la fin de la chaîne
+    std::istringstream iss(commandStr.c_str());
+    while (iss >> token) {
+        tokens.push_back(token.c_str());
     }
 
-    if (tokens.empty())
-      return;  // Ignore les lignes vides
+    if (tokens.empty()) {
+        return;  
+    }
 
-    command = tokens[0];
-    std::vector<String> args(tokens.begin() + 1, tokens.end());  // Récupère tous les arguments
+    String command = tokens[0];
+    std::vector<String> args(tokens.begin() + 1, tokens.end()); // Récupérer les arguments, s'il y en a
 
     // Recherche de la commande dans la map
     auto it = _commandCallbacks.find(command);
     if (it != _commandCallbacks.end()) {
-      it->second(args);  // Envoie les arguments
+        it->second.callback(args);  // Envoie les arguments
     } else {
-      Serial.println("Commande inconnue.");
+        Serial.println("Commande inconnue : '" + command + "'");
     }
-  }
+}
+
 
   // Conversion des arguments en fonction de leur type
   template <typename T>
