@@ -28,16 +28,16 @@
 
 
  ### Procédure de calibration
-- setupGoToZero
+- setupStart
   - Appeler pour démarrer la procédure
   - Va jusqu'au front montant optique
   - Set currentPulses = 0
   - Set defaultPulse = 0
-- setupNextPulse
+- setupNext
   - Appeler plusieurs fois jusqu'à ce que le panneau change physiquement (non compris)
   - Avance d'une pulse (ou 2 en pratique)
   - Set currentPulses++
-- setupSetPanelNb 13
+- setupEnd 13
   - Appeler une fois que le panneau a changé en indiquant le no du nouveau panneau
   - Set currentPulses += 13 * 24 (on dit au système d'avancer de 13 panels car on n'était pas au panel 0 avant)
   - Set defaultPulse = (13 * 24) - currentPulses (maintenant qu'on sait qu'on est à panel 13 pulse ~0, l'optique était currentPulses avant)

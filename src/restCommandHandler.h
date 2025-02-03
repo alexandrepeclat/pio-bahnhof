@@ -39,15 +39,13 @@ class RestCommandHandler {
       }
 
       // Conversion et appel du callback
-      try {
-        Arg1 arg1 = convertArgument<Arg1>(param.c_str());  // Conversion
-        String response = callback(arg1);
-        _server.send(200, "text/plain", response);
-      } catch (const std::invalid_argument& e) {
-        _server.send(400, "text/plain", "Erreur de conversion: " + String(e.what()));
-      } catch (const std::out_of_range& e) {
-        _server.send(400, "text/plain", "Erreur: valeur hors plage: " + String(e.what()));
+      Arg1 arg1;
+      if (!convertArgument<Arg1>(param.c_str(), arg1)) {
+        _server.send(400, "text/plain", "Erreur de conversion pour l'argument " + paramNames[0] + " : " + param);
+        return;
       }
+      String response = callback(arg1);
+        _server.send(200, "text/plain", response);
     });
   }
 
@@ -68,16 +66,18 @@ class RestCommandHandler {
       }
 
       // Conversion et appel du callback
-      try {
-        Arg1 arg1 = convertArgument<Arg1>(param1.c_str());
-        Arg2 arg2 = convertArgument<Arg2>(param2.c_str());
-        String response = callback(arg1, arg2);
-        _server.send(200, "text/plain", response);
-      } catch (const std::invalid_argument& e) {
-        _server.send(400, "text/plain", "Erreur de conversion: " + String(e.what()));
-      } catch (const std::out_of_range& e) {
-        _server.send(400, "text/plain", "Erreur: valeur hors plage: " + String(e.what()));
+      Arg1 arg1;
+      Arg2 arg2;
+      if (!convertArgument<Arg1>(param1.c_str(), arg1)) {
+        _server.send(400, "text/plain", "Erreur de conversion pour l'argument " + paramNames[0] + " : " + param1);
+        return;
       }
+      if (!convertArgument<Arg2>(param2.c_str(), arg2)) {
+        _server.send(400, "text/plain", "Erreur de conversion pour l'argument " + paramNames[1] + " : " + param2);
+        return;
+      }
+      String response = callback(arg1.c_str(), arg2);
+        _server.send(200, "text/plain", response);
     });
   }
 
@@ -88,7 +88,7 @@ class RestCommandHandler {
 
     _server.on("/" + endpoint, method, [this, callback, paramNames]() {
       sendHeaders();
-      
+
       // Vérification des arguments
       String param1 = _server.arg(paramNames[0]);
       String param2 = _server.arg(paramNames[1]);
@@ -99,17 +99,23 @@ class RestCommandHandler {
       }
 
       // Conversion et appel du callback
-      try {
-        Arg1 arg1 = convertArgument<Arg1>(param1.c_str());
-        Arg2 arg2 = convertArgument<Arg2>(param2.c_str());
-        Arg3 arg3 = convertArgument<Arg3>(param3.c_str());
-        String response = callback(arg1, arg2, arg3);
-        _server.send(200, "text/plain", response);
-      } catch (const std::invalid_argument& e) {
-        _server.send(400, "text/plain", "Erreur de conversion: " + String(e.what()));
-      } catch (const std::out_of_range& e) {
-        _server.send(400, "text/plain", "Erreur: valeur hors plage: " + String(e.what()));
+      Arg1 arg1;
+      Arg2 arg2;
+      Arg3 arg3;
+      if (!convertArgument<Arg1>(param1.c_str(), arg1)) {
+        _server.send(400, "text/plain", "Erreur de conversion pour l'argument " + paramNames[0] + " : " + param1);
+        return;
       }
+      if (!convertArgument<Arg2>(param2.c_str(), arg2)) {
+        _server.send(400, "text/plain", "Erreur de conversion pour l'argument " + paramNames[1] + " : " + param2);
+        return;
+      }
+      if (!convertArgument<Arg3>(param3.c_str(), arg3)) {
+        _server.send(400, "text/plain", "Erreur de conversion pour l'argument " + paramNames[2] + " : " + param3);
+        return;
+      }
+      String response = callback(arg1, arg2, arg3);
+        _server.send(200, "text/plain", response);
     });
   }
 
@@ -126,13 +132,27 @@ class RestCommandHandler {
 
   // Conversion des arguments en fonction de leur type
   template <typename T>
-  T convertArgument(const char* arg) {
+  bool convertArgument(const std::string& arg, T& outValue) {
+    std::istringstream iss(arg);
+
     if constexpr (std::is_same_v<T, int>) {
-      return atoi(arg);
+      int temp;
+      if (!(iss >> temp))
+        return false;  // Vérifie la conversion
+      if (!iss.eof())
+        return false;  // Vérifie qu'il n'y a pas de caractères restants
+      outValue = temp;
     } else if constexpr (std::is_same_v<T, float>) {
-      return atof(arg);
+      float temp;
+      if (!(iss >> temp))
+        return false;  // Vérifie la conversion
+      if (!iss.eof())
+        return false;  // Vérifie qu'il n'y a pas de caractères restants
+      outValue = temp;
     } else {
-      return String(arg).c_str();  // pour le cas des strings
+      outValue = arg;  // Pour les strings, pas besoin de conversion
     }
+
+    return true;  // Conversion réussie
   }
 };

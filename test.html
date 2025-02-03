@@ -173,16 +173,19 @@
         <input type="number" id="advancePulsesInput" placeholder="Enter Pulse Count" value="10">
         <button onclick="advancePulses()">Advance Pulses</button>
 
+        <h2>Setup</h2>
+        <button onclick="setupStart()">setupStart</button>
+        <button onclick="setupNext()">setupNext</button>
+        <input type="number" id="setupEndInput" placeholder="Enter Panel Number" value="13">
+        <button onclick="setupEnd()">setupEnd</button>
+        <button onclick="setupCancel()">setupCancel</button>
+        <input type="number" id="setupManualInput" placeholder="Enter Pulse Offset" value="289">
+        <button onclick="setupManual()">setupManual</button>
+
         <p id="responseMessage"></p>
 
 
-
         <div style="white-space:pre-wrap;">
-
-            setupGoToZero
-            setupNextPulse
-            setupSetPanelNb 13
-            setupCancel
         </div>
     </div>
 
@@ -245,7 +248,7 @@
 
         function moveToPanel() {
             const panelIndex = parseInt(document.getElementById('moveToPanelInput').value);
-            if (!panelIndex) {
+            if (isNaN(panelIndex)) {
                 alert('Please enter a panel number.');
                 return;
             }
@@ -289,6 +292,36 @@
 
         function getDebug() {
             apiRequest('/debug');
+        }
+
+        function setupStart() {
+            apiRequest('/setupStart');
+        }
+
+        function setupNext() {
+            apiRequest('/setupNext');
+        }
+
+        function setupEnd() {
+            const panel = parseInt(document.getElementById('setupEndInput').value);
+            if (!panel) {
+                alert('Please enter a panel number.');
+                return;
+            }
+            apiRequest('/setupEnd', 'POST', { panel });
+        }
+
+        function setupCancel() {
+            apiRequest('/setupCancel');
+        }
+
+        function setupManual() {
+            const pulse = parseInt(document.getElementById('setupManualInput').value);
+            if (!pulse) {
+                alert('Please enter a pulse offset.');
+                return;
+            }
+            apiRequest('/setupManual', 'POST', { pulse });
         }
     </script>
 </body>
