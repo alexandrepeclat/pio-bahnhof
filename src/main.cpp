@@ -32,14 +32,7 @@ void emergencyStop(String message);
 String stateToString(AppState state);
 void setCurrentState(AppState newState);
 
-template <typename T>
-void assertThis(bool condition, T&& message) {
-  if (!condition) {
-    emergencyStop(std::forward<T>(message));
-  }
-}
-
-#define DEBUG_ENABLED 1
+#define DEBUG_ENABLED
 
 // Pins configuration
 #define SERVO_PIN D3
@@ -69,18 +62,14 @@ RestCommandHandler restCommandHandler(server);
 // Encoder
 int defaultPulse = 0;
 int targetPulses = 0;  // New targetPulses property
-volatile int encoderInterruptCallCount = 0;
 volatile uint8_t encoderState = 0;
 volatile int encoderPulses = 0;
-volatile int encoderPulsesRaw = 0;
 const int8_t ENCODER_STATE_TABLE[16] = {0, 1, -1, -0, -1, 0, -0, 1, 1, -0, 0, -1, -0, -1, 1, 0};  // Encoder state table for natural debouncing (-0 are non valid states)
 
 // Optical sensor
 const int OPTICAL_DETECTED_EDGE = RISING;  // Capteur à 1 quand coupé / 0 quand trou / ralentit quand trou, et calibre sur rising vers coupé
 volatile bool opticalState = LOW;
 volatile bool opticalLastState = HIGH;  // Initialize to HIGH (not detected)
-volatile int opticalDetectedPulses = 0;
-volatile int opticalDetectedEdgesCount = 0;
 
 // Servo
 Servo servo;
@@ -90,8 +79,25 @@ static_assert(RUN_SPEED > 90, "RUN_SPEED must be greater than 90 or everything w
 const unsigned long BLOCKAGE_TIMEOUT = 500;  // Timeout in milliseconds to detect blockage
 
 #ifdef DEBUG_ENABLED
+volatile int encoderPulsesRaw = 0;
+volatile int encoderInterruptCallCount = 0;
+volatile int opticalDetectedEdgesCount = 0;
 std::map<String, String> lastDebugMessages;  // Map to store the last debug messages
 #endif
+
+template <typename T>
+void assertError(bool condition, T&& message) { //TODO fonction de génération pour pas générer pour rien le message
+  if (!condition) {
+    emergencyStop(std::forward<T>(message));
+  }
+}
+
+template <typename T>
+void assertWarn(bool condition, T&& message) {
+  if (!condition) {
+    errorMessage = message;
+  }
+}
 
 void emergencyStop(String message) {
   servo.write(STOP_SPEED);  // First things first, stop the motor
@@ -106,7 +112,7 @@ int getCurrentPulses() {
 }
 
 void setTargetPulses(int pulses) {
-  assertThis(pulses >= 0 && pulses < PULSES_COUNT, "pulses " + String(pulses) + " out of bounds");  // TODO à voir si la création du string n'est pas appelée (appeler ici une fonction qui retourne string et print un truc dans serial)
+  assertError(pulses >= 0 && pulses < PULSES_COUNT, "pulses " + String(pulses) + " out of bounds");  // TODO à voir si la création du string n'est pas appelée (appeler ici une fonction qui retourne string et print un truc dans serial)
   targetPulses = pulses;
 }
 
@@ -123,7 +129,7 @@ int getTargetPanel() {
 }
 
 void setTargetPanel(int panel) {
-  assertThis(panel < PANELS_COUNT, "panel " + String(panel) + " > " + PANELS_COUNT);
+  assertError(panel < PANELS_COUNT, "panel " + String(panel) + " > " + PANELS_COUNT);
   setTargetPulses((panel * PULSES_PER_PANEL) + TARGET_PULSE_OFFSET);
 }
 
@@ -138,17 +144,12 @@ int getDefaultPulseOffset() {
 String buildDebugJson(String message) {
   String debugJson = "{";
   debugJson += "\"msg\":\"" + message + "\"" +
-               //",\"dur\":" + String(loopMillis - lastLoopMillis) +
                ",\"currentPanel\":" + String(getCurrentPanel()) +
                ",\"currentPulses\":" + String(getCurrentPulses()) +
                ",\"targetPanel\":" + String(getTargetPanel()) +
                ",\"targetPulses\":" + String(getTargetPulses()) +
                ",\"optical\":" + String(opticalState) +
-               ",\"odPulses\":" + String(opticalDetectedPulses) +
-               ",\"odCount\":" + String(opticalDetectedEdgesCount) +
                ",\"encPulses\":" + String(encoderPulses) +
-               ",\"encPulsesRaw\":" + String(encoderPulsesRaw) +
-               ",\"encInt\":" + String(encoderInterruptCallCount) +
                ",\"calibrated\":" + String(calibrated) +
                ",\"dist\":" + String(getRemainingPulses()) +
                ",\"servo\":" + String(servo.read()) +
@@ -156,7 +157,11 @@ String buildDebugJson(String message) {
                ",\"defaultPanel\":" + String(getDefaultPanel()) +
                ",\"defaultPulseOffset\":" + String(getDefaultPulseOffset()) +
                ",\"state\":" + stateToString(currentState) +
-               //",\"errorFlag\":" + String(errorFlag) +
+               #ifdef DEBUG_ENABLED
+               ",\"encPulsesRaw\":" + String(encoderPulsesRaw) +
+               ",\"opticalDetectedEdgesCount\":" + String(opticalDetectedEdgesCount) +
+               ",\"encoderInterruptCallCount\":" + String(encoderInterruptCallCount) +
+                #endif
                ",\"errorMessage\":\"" + errorMessage + "\"" +
                "}";
   return debugJson;
@@ -219,7 +224,7 @@ String doGetSerialCommands() {
 
 String doSetupManual(int pulse) {
   defaultPulse = pulse;
-  assertThis(defaultPulse >= 0 && defaultPulse < PULSES_COUNT, "defaultPulse " + String(defaultPulse) + " out of bounds [0-" + String(PULSES_COUNT) + "]");
+  assertError(defaultPulse >= 0 && defaultPulse < PULSES_COUNT, "defaultPulse " + String(defaultPulse) + " out of bounds [0-" + String(PULSES_COUNT) + "]");
   encoderPulses += defaultPulse;  // TODO à virer si on gère l'offset dynamiquement ce qui serait pas mal ET SURTOUT ne pas placer cette ligne avant defaultPulse=...
   saveDefaultPulse();
   return "Setup completed. Default pulse set to " + String(defaultPulse) + ". Default panel is " + String(getDefaultPanel()) + " with offset " + String(getDefaultPulseOffset());
@@ -249,7 +254,7 @@ String doSetupSetPanelNb(int panel) {
 
   setCurrentState(STOPPED);
   defaultPulse = (panel * PULSES_PER_PANEL) - getCurrentPulses();
-  assertThis(defaultPulse >= 0 && defaultPulse < PULSES_COUNT, "defaultPulse " + String(defaultPulse) + " out of bounds [0-" + String(PULSES_COUNT) + "]");
+  assertError(defaultPulse >= 0 && defaultPulse < PULSES_COUNT, "defaultPulse " + String(defaultPulse) + " out of bounds [0-" + String(PULSES_COUNT) + "]");
   encoderPulses += defaultPulse;  // TODO à virer si on gère l'offset dynamiquement ce qui serait pas mal ET SURTOUT ne pas placer cette ligne avant defaultPulse=...
   saveDefaultPulse();
   return "Setup completed. Default pulse set to " + String(defaultPulse) + ". Default panel is " + String(getDefaultPanel()) + " with offset " + String(getDefaultPulseOffset());
@@ -487,13 +492,16 @@ void checkForRunningErrors() {
 }
 
 void IRAM_ATTR handleEncoderInterrupt() {
-  encoderInterruptCallCount++;
   byte pinA = (GPIO_REG_READ(GPIO_IN_ADDRESS) >> ENCODER_PIN_A) & 1;
   byte pinB = (GPIO_REG_READ(GPIO_IN_ADDRESS) >> ENCODER_PIN_B) & 1;
   encoderState = ((encoderState << 2) | (pinA << 1) | pinB) & 15;  // Décale et masque les bits
   int8_t pulseInc = ENCODER_STATE_TABLE[encoderState] * ENCODER_DIRECTION_SIGN;
   encoderPulses += pulseInc;
+
+  #ifdef DEBUG_ENABLED
+  encoderInterruptCallCount++;
   encoderPulsesRaw += pulseInc;  // TODO pas génial, faudrait gérer l'offset dans le getter ou le setter à partir du raw systématiquement et n'incrémenter que le raw
+  #endif
 
   if (pulseInc < 1)
     return;
@@ -502,11 +510,16 @@ void IRAM_ATTR handleEncoderInterrupt() {
   opticalState = (GPIO_REG_READ(GPIO_IN_ADDRESS) >> OPTICAL_SENSOR_PIN) & 1;
   if ((OPTICAL_DETECTED_EDGE == RISING && opticalLastState == LOW && opticalState == HIGH) ||
       (OPTICAL_DETECTED_EDGE == FALLING && opticalLastState == HIGH && opticalState == LOW)) {
-    opticalDetectedEdgesCount++;
-    opticalDetectedPulses = encoderPulses % PULSES_COUNT;  // TODO virer opticalDetectedPulses et mettre un msg warning si n'est pas = à defaultPulse
     encoderPulses = defaultPulse;
-    encoderPulsesRaw = 0;
     calibrated = true;
+
+    //If difference btw encoder pulses and default pulse is greather than 1, we were missing some steps and give a warning
+    assertWarn(!calibrated || abs(encoderPulses - defaultPulse) <= 1, "Optical edge detected at pulse " + String(encoderPulses) + " instead of " + String(PULSES_COUNT));
+
+    #ifdef DEBUG_ENABLED
+    opticalDetectedEdgesCount++;
+    encoderPulsesRaw = 0;
+    #endif
   }
   opticalLastState = opticalState;
 
