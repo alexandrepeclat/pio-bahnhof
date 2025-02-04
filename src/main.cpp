@@ -587,7 +587,7 @@ void setup() {
 }
 
 void loop() {
-  connectToWiFi();  // Keep it alive //TODO Wifi non bloquant
+  connectToWiFi();  // Keep it alive //TODO Wifi non bloquant + voir si problèmes en cas de déconnexion avec le serveur http ou autre
   loopMillis = millis();
   readSensors();  // Read sensors and handle edge detection
   evaluateStateTransitions();
