@@ -44,7 +44,7 @@ void setCurrentState(AppState newState);
 const int PANELS_COUNT = 62;
 const int PULSES_PER_PANEL = 24;                           // ENCODER_RESOLUTION / ENCODER_GEAR_TEETH * ENCODER_PULSES_PER_STEP = 360 / 60 * 4 = 24
 const int PULSES_COUNT = PANELS_COUNT * PULSES_PER_PANEL;  // Nombre total d'impulsions
-const int ENCODER_DIRECTION_SIGN = 1;                      // TODO c'est pas clair si c'est géré par l'interruption sans s'en soucier à la lecture car on en tient compte dans le getter... et on en tient compte 2x dans l'interruption ce qui semble etre faux
+const int ENCODER_DIRECTION_SIGN = 1;
 const int TARGET_PULSE_OFFSET = 12;                        // When setting a target panel, use the nth pulse of this panel for centering
 static_assert(TARGET_PULSE_OFFSET >= 0 && TARGET_PULSE_OFFSET < PULSES_PER_PANEL, "OFFSET must be in range [0-PULSES_PER_PANEL]");
 
@@ -102,7 +102,7 @@ void assertWarn(bool condition, T&& message) {
 void emergencyStop(String message) {
   servo.write(STOP_SPEED);  // First things first, stop the motor
   setCurrentState(EMERGENCY_STOPPED);
-  errorFlag = true;  // TODO à voir si redondant ou safe ou si servo.detach() serait mieux et si ça fonctionnerait
+  errorFlag = true;  // TODO à voir mais à priori pas redondant avec le state car les états peuvent être changés par les commandes (sinon faut que chaque commande vérifie que l'état est pas erreur avant de se lancer (ou que la fonction setState() s'en charge !))
   errorMessage = message;
   Serial.println(String(loopMillis) + " EMERGENCY STOP: " + message);
 }
