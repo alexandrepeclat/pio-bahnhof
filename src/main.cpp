@@ -102,7 +102,7 @@ void emergencyStop(String message) {
 }
 
 int getCurrentPulses() {
-  return (encoderPulses * ENCODER_DIRECTION_SIGN) % PULSES_COUNT;
+  return encoderPulses % PULSES_COUNT;
 }
 
 void setTargetPulses(int pulses) {
@@ -491,7 +491,7 @@ void IRAM_ATTR handleEncoderInterrupt() {
   byte pinA = (GPIO_REG_READ(GPIO_IN_ADDRESS) >> ENCODER_PIN_A) & 1;
   byte pinB = (GPIO_REG_READ(GPIO_IN_ADDRESS) >> ENCODER_PIN_B) & 1;
   encoderState = ((encoderState << 2) | (pinA << 1) | pinB) & 15;  // Décale et masque les bits
-  int8_t pulseInc = ENCODER_STATE_TABLE[encoderState];
+  int8_t pulseInc = ENCODER_STATE_TABLE[encoderState] * ENCODER_DIRECTION_SIGN;
   encoderPulses += pulseInc;
   encoderPulsesRaw += pulseInc;  // TODO pas génial, faudrait gérer l'offset dans le getter ou le setter à partir du raw systématiquement et n'incrémenter que le raw
 
@@ -504,14 +504,14 @@ void IRAM_ATTR handleEncoderInterrupt() {
       (OPTICAL_DETECTED_EDGE == FALLING && opticalLastState == HIGH && opticalState == LOW)) {
     opticalDetectedEdgesCount++;
     opticalDetectedPulses = encoderPulses % PULSES_COUNT;  // TODO virer opticalDetectedPulses et mettre un msg warning si n'est pas = à defaultPulse
-    encoderPulses = defaultPulse * ENCODER_DIRECTION_SIGN;
+    encoderPulses = defaultPulse;
     encoderPulsesRaw = 0;
     calibrated = true;
   }
   opticalLastState = opticalState;
 
   // Check if the target is reached
-  if (currentState == MOVING_TO_TARGET && targetPulses == (encoderPulses * ENCODER_DIRECTION_SIGN) % PULSES_COUNT) {
+  if (currentState == MOVING_TO_TARGET && targetPulses == encoderPulses % PULSES_COUNT) {
     currentState = STOPPED;  // TODO pas fan de traiter la transition d'état ici... et on le fait aussi dans la loop
   }
 }
