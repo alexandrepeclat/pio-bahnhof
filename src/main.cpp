@@ -61,7 +61,7 @@ RestCommandHandler restCommandHandler(server);
 
 // Encoder
 int defaultPulse = 0;
-int targetPulses = 0;  // New targetPulses property
+int targetPulses = 0; 
 volatile uint8_t encoderState = 0;
 volatile int encoderPulses = 0;
 const int8_t ENCODER_STATE_TABLE[16] = {0, 1, -1, -0, -1, 0, -0, 1, 1, -0, 0, -1, -0, -1, 1, 0};  // Encoder state table for natural debouncing (-0 are non valid states)
@@ -108,7 +108,9 @@ void emergencyStop(String message) {
 }
 
 int getCurrentPulses() {
-  return encoderPulses % PULSES_COUNT;
+  noInterrupts();
+  return encoderPulses;
+  interrupts();
 }
 
 void setTargetPulses(int pulses) {
@@ -149,7 +151,6 @@ String buildDebugJson(String message) {
                ",\"targetPanel\":" + String(getTargetPanel()) +
                ",\"targetPulses\":" + String(getTargetPulses()) +
                ",\"optical\":" + String(opticalState) +
-               ",\"encPulses\":" + String(encoderPulses) +
                ",\"calibrated\":" + String(calibrated) +
                ",\"dist\":" + String(getRemainingPulses()) +
                ",\"servo\":" + String(servo.read()) +
@@ -224,8 +225,8 @@ String doGetSerialCommands() {
 
 String doSetupManual(int pulse) {
   defaultPulse = pulse;
+  calibrated = false;
   assertError(defaultPulse >= 0 && defaultPulse < PULSES_COUNT, "defaultPulse " + String(defaultPulse) + " out of bounds [0-" + String(PULSES_COUNT) + "]");
-  encoderPulses += defaultPulse;  // TODO à virer si on gère l'offset dynamiquement ce qui serait pas mal ET SURTOUT ne pas placer cette ligne avant defaultPulse=...
   saveDefaultPulse();
   return "Setup completed. Default pulse set to " + String(defaultPulse) + ". Default panel is " + String(getDefaultPanel()) + " with offset " + String(getDefaultPulseOffset());
 }
@@ -243,7 +244,6 @@ String doSetupNextPulse() {
   }
   setCurrentState(SETUP_MOVE_PULSE);
   targetPulses = (getCurrentPulses() + 1) % PULSES_COUNT;
-  Serial.println("Next pulse: " + String(targetPulses));
   return "Moving to next pulse. Call 'setupNext' if the panel did not change, or call 'setupEnd x' if it did where x is the panel number.";
 }
 
@@ -255,7 +255,6 @@ String doSetupSetPanelNb(int panel) {
   setCurrentState(STOPPED);
   defaultPulse = (panel * PULSES_PER_PANEL) - getCurrentPulses();
   assertError(defaultPulse >= 0 && defaultPulse < PULSES_COUNT, "defaultPulse " + String(defaultPulse) + " out of bounds [0-" + String(PULSES_COUNT) + "]");
-  encoderPulses += defaultPulse;  // TODO à virer si on gère l'offset dynamiquement ce qui serait pas mal ET SURTOUT ne pas placer cette ligne avant defaultPulse=...
   saveDefaultPulse();
   return "Setup completed. Default pulse set to " + String(defaultPulse) + ". Default panel is " + String(getDefaultPanel()) + " with offset " + String(getDefaultPulseOffset());
 }
@@ -275,7 +274,9 @@ String doGetCurrentPanel() {
 }
 
 String doMoveToPanel(int panel) {
-  panel %= PANELS_COUNT;  // Ensure target is within bounds
+  if (panel > PANELS_COUNT) {
+    return "Panel " + String(panel) + " out of bounds [0-" + String(PANELS_COUNT) + "]";
+  }
   setTargetPanel(panel);
   setCurrentState(MOVING_TO_TARGET);
   return "Moving to panel " + String(getTargetPanel());
@@ -306,7 +307,6 @@ String doStop() {
   setMotorSpeed(0);          // Use the centralized function to stop the motor
   setCurrentState(STOPPED);  // Set motor mode to stopped
   setTargetPulses(getCurrentPulses());
-  Serial.println("doStop !");
   return "Stopped. Current panel set to " + String(getCurrentPanel());
 }
 
@@ -496,11 +496,11 @@ void IRAM_ATTR handleEncoderInterrupt() {
   byte pinB = (GPIO_REG_READ(GPIO_IN_ADDRESS) >> ENCODER_PIN_B) & 1;
   encoderState = ((encoderState << 2) | (pinA << 1) | pinB) & 15;  // Décale et masque les bits
   int8_t pulseInc = ENCODER_STATE_TABLE[encoderState] * ENCODER_DIRECTION_SIGN;
-  encoderPulses += pulseInc;
+  encoderPulsesRaw += pulseInc;
+  encoderPulses = (encoderPulsesRaw + defaultPulse) % PULSES_COUNT;
 
   #ifdef DEBUG_ENABLED
   encoderInterruptCallCount++;
-  encoderPulsesRaw += pulseInc;  // TODO pas génial, faudrait gérer l'offset dans le getter ou le setter à partir du raw systématiquement et n'incrémenter que le raw
   #endif
 
   if (pulseInc < 1)
@@ -510,22 +510,20 @@ void IRAM_ATTR handleEncoderInterrupt() {
   opticalState = (GPIO_REG_READ(GPIO_IN_ADDRESS) >> OPTICAL_SENSOR_PIN) & 1;
   if ((OPTICAL_DETECTED_EDGE == RISING && opticalLastState == LOW && opticalState == HIGH) ||
       (OPTICAL_DETECTED_EDGE == FALLING && opticalLastState == HIGH && opticalState == LOW)) {
-    encoderPulses = defaultPulse;
+    assertWarn(!calibrated || abs(encoderPulses - defaultPulse) <= 1, "Missing steps ? Optical edge detected at pulse " + String(encoderPulses) + " instead of " + String(PULSES_COUNT));
+    encoderPulsesRaw = 0;
+    encoderPulses = (encoderPulsesRaw + defaultPulse) % PULSES_COUNT;
     calibrated = true;
-
-    //If difference btw encoder pulses and default pulse is greather than 1, we were missing some steps and give a warning
-    assertWarn(!calibrated || abs(encoderPulses - defaultPulse) <= 1, "Optical edge detected at pulse " + String(encoderPulses) + " instead of " + String(PULSES_COUNT));
 
     #ifdef DEBUG_ENABLED
     opticalDetectedEdgesCount++;
-    encoderPulsesRaw = 0;
     #endif
   }
   opticalLastState = opticalState;
 
   // Check if the target is reached
-  if (currentState == MOVING_TO_TARGET && targetPulses == encoderPulses % PULSES_COUNT) {
-    currentState = STOPPED;  // TODO pas fan de traiter la transition d'état ici... et on le fait aussi dans la loop
+  if (currentState == MOVING_TO_TARGET && targetPulses == encoderPulses) {
+    currentState = STOPPED;  // TODO pas fan de traiter la transition d'état ici... et on le fait aussi dans la loop et attention car faut protéger la lecture de currentState contre les interruptions
   }
 }
 
