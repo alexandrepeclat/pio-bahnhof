@@ -4,18 +4,19 @@
 #include <Arduino.h>
 #include <CRC32.h>
 #include <functional>
-#include <map>
+#include <vector>
 
-class DebugJsonBuilder {
+typedef std::vector<std::pair<String, std::function<String()>>> OrderedFields;
+
+class DebugJsonBuilder { //TODO Comparer les perfs avec système d'avant : commit be1997fe6e899b7f2f3032f2f2788ff617f0a662
  public:
-  DebugJsonBuilder(const std::map<String, std::function<String()>>& fields)
+  DebugJsonBuilder(const OrderedFields& fields)
       : fields(fields), previousHash(0) {}
 
   // Méthode pour construire le JSON
   String buildJson() {
     String json;
     json.reserve(256);  // Préalloue de la mémoire pour éviter les allocations dynamiques
-    json = "HASH" + String(previousHash) + "{";
     for (auto it = fields.begin(); it != fields.end(); ++it) {
       if (it != fields.begin())
         json += ",";
@@ -30,7 +31,7 @@ class DebugJsonBuilder {
     CRC32 crc;
     for (const auto& [key, func] : fields) {
       String val = func();
-      crc.update(reinterpret_cast<const uint8_t*>(val.c_str()), val.length());  // TODO vérifier que c'est bien le hash du résultat de l'appel et non le pointeur qui est hashé et aussi qu'il accepte bien le c_str() sinon faire un     crc.update(reinterpret_cast<const uint8_t*>(concatenatedValues.c_str()), concatenatedValues.length());  // Mise à jour du CRC avec les données
+      crc.update(reinterpret_cast<const uint8_t*>(val.c_str()), val.length());  // Mise à jour du CRC avec les données
     }
     return crc.finalize();
   }
@@ -46,7 +47,7 @@ class DebugJsonBuilder {
   }
 
  private:
-  std::map<String, std::function<String()>> fields;
+  OrderedFields fields;
   uint32_t previousHash;
 
   // Fonction pour échapper les guillemets dans les valeurs JSON

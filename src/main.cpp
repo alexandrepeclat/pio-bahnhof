@@ -2,10 +2,10 @@
 #include <ESP8266WebServer.h>
 #include <ESP8266WiFi.h>
 #include <Servo.h>
-#include <debug.h>
-#include <restCommandHandler.h>
+#include <DebugBuilder.h>
+#include <RestCommandHandler.h>
+#include <SerialCommandHandler.h>
 #include <secrets.h>
-#include <serialCommandHandler.h>
 #include <map>
 
 enum AppState {
@@ -88,7 +88,7 @@ volatile int encoderInterruptCallCount = 0;
 volatile int opticalDetectedEdgesCount = 0;
 #endif
 
-std::map<String, std::function<String()>> debugFields = {
+OrderedFields debugFields = {
     {"msg", []() { return "Debug request"; }},
     {"currentPanel", []() { return String(getCurrentPanel()); }},
     {"currentPulses", []() { return String(getCurrentPulses()); }},
