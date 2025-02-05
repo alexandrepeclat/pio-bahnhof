@@ -2,6 +2,7 @@
 #include <ESP8266WebServer.h>
 #include <ESP8266WiFi.h>
 #include <Servo.h>
+#include <debug.h>
 #include <restCommandHandler.h>
 #include <secrets.h>
 #include <serialCommandHandler.h>
@@ -22,7 +23,6 @@ enum AppState {
 int getCurrentPulses();
 int getCurrentPanel();
 int getTargetPulses();
-String buildDebugJson(String message);
 float calculateSpeedMovingToTarget();
 int getRemainingPulses();
 void setMotorSpeed(float normalizedSpeed);
@@ -31,6 +31,10 @@ int getTargetPanel();
 void emergencyStop(String message);
 String stateToString(AppState state);
 void setCurrentState(AppState newState);
+void saveDefaultPulse();
+void loadDefaultPulse();
+int getDefaultPanel();
+int getDefaultPulseOffset();
 
 #define DEBUG_ENABLED
 
@@ -45,7 +49,7 @@ const int PANELS_COUNT = 62;
 const int PULSES_PER_PANEL = 24;                           // ENCODER_RESOLUTION / ENCODER_GEAR_TEETH * ENCODER_PULSES_PER_STEP = 360 / 60 * 4 = 24
 const int PULSES_COUNT = PANELS_COUNT * PULSES_PER_PANEL;  // Nombre total d'impulsions
 const int ENCODER_DIRECTION_SIGN = 1;
-const int TARGET_PULSE_OFFSET = 12;                        // When setting a target panel, use the nth pulse of this panel for centering
+const int TARGET_PULSE_OFFSET = 12;  // When setting a target panel, use the nth pulse of this panel for centering
 static_assert(TARGET_PULSE_OFFSET >= 0 && TARGET_PULSE_OFFSET < PULSES_PER_PANEL, "OFFSET must be in range [0-PULSES_PER_PANEL]");
 
 // Globals
@@ -61,7 +65,7 @@ RestCommandHandler restCommandHandler(server);
 
 // Encoder
 int defaultPulse = 0;
-int targetPulses = 0; 
+int targetPulses = 0;
 volatile uint8_t encoderState = 0;
 volatile int encoderPulses = 0;
 const int8_t ENCODER_STATE_TABLE[16] = {0, 1, -1, -0, -1, 0, -0, 1, 1, -0, 0, -1, -0, -1, 1, 0};  // Encoder state table for natural debouncing (-0 are non valid states)
@@ -82,11 +86,34 @@ const unsigned long BLOCKAGE_TIMEOUT = 500;  // Timeout in milliseconds to detec
 volatile int encoderPulsesRaw = 0;
 volatile int encoderInterruptCallCount = 0;
 volatile int opticalDetectedEdgesCount = 0;
-std::map<String, String> lastDebugMessages;  // Map to store the last debug messages
 #endif
 
+std::map<String, std::function<String()>> debugFields = {
+    {"msg", []() { return "Debug request"; }},
+    {"currentPanel", []() { return String(getCurrentPanel()); }},
+    {"currentPulses", []() { return String(getCurrentPulses()); }},
+    {"targetPanel", []() { return String(getTargetPanel()); }},
+    {"targetPulses", []() { return String(getTargetPulses()); }},
+    {"optical", []() { return String(opticalState); }},
+    {"calibrated", []() { return String(calibrated); }},
+    {"dist", []() { return String(getRemainingPulses()); }},
+    {"servo", []() { return String(servo.read()); }},
+    {"defaultPulse", []() { return String(defaultPulse); }},
+    {"defaultPanel", []() { return String(getDefaultPanel()); }},
+    {"defaultPulseOffset", []() { return String(getDefaultPulseOffset()); }},
+    {"state", []() { return stateToString(currentState); }},
+#ifdef DEBUG_ENABLED
+    {"encPulsesRaw", []() { return String(encoderPulsesRaw); }},
+    {"opticalDetectedEdgesCount", []() { return String(opticalDetectedEdgesCount); }},
+    {"encoderInterruptCallCount", []() { return String(encoderInterruptCallCount); }},
+#endif
+    {"errorMessage", []() { return errorMessage; }},
+};
+
+DebugJsonBuilder debugBuilder(debugFields);
+
 template <typename T>
-void assertError(bool condition, T&& message) { //TODO fonction de génération pour pas générer pour rien le message
+void assertError(bool condition, T&& message) {  // TODO fonction de génération pour pas générer pour rien le message
   if (!condition) {
     emergencyStop(std::forward<T>(message));
   }
@@ -108,9 +135,9 @@ void emergencyStop(String message) {
 }
 
 int getCurrentPulses() {
-  noInterrupts();
+  //noInterrupts(); //TODO à voir ça embete le port série de fonctionner pourtant c'est quand même séquentiel
   return encoderPulses;
-  interrupts();
+  //interrupts();
 }
 
 void setTargetPulses(int pulses) {
@@ -142,40 +169,6 @@ int getDefaultPanel() {
 int getDefaultPulseOffset() {
   return defaultPulse % PULSES_PER_PANEL;
 }
-
-String buildDebugJson(String message) {
-  String debugJson = "{";
-  debugJson += "\"msg\":\"" + message + "\"" +
-               ",\"currentPanel\":" + String(getCurrentPanel()) +
-               ",\"currentPulses\":" + String(getCurrentPulses()) +
-               ",\"targetPanel\":" + String(getTargetPanel()) +
-               ",\"targetPulses\":" + String(getTargetPulses()) +
-               ",\"optical\":" + String(opticalState) +
-               ",\"calibrated\":" + String(calibrated) +
-               ",\"dist\":" + String(getRemainingPulses()) +
-               ",\"servo\":" + String(servo.read()) +
-               ",\"defaultPulse\":" + String(defaultPulse) +
-               ",\"defaultPanel\":" + String(getDefaultPanel()) +
-               ",\"defaultPulseOffset\":" + String(getDefaultPulseOffset()) +
-               ",\"state\":" + stateToString(currentState) +
-               #ifdef DEBUG_ENABLED
-               ",\"encPulsesRaw\":" + String(encoderPulsesRaw) +
-               ",\"opticalDetectedEdgesCount\":" + String(opticalDetectedEdgesCount) +
-               ",\"encoderInterruptCallCount\":" + String(encoderInterruptCallCount) +
-                #endif
-               ",\"errorMessage\":\"" + errorMessage + "\"" +
-               "}";
-  return debugJson;
-}
-
-#ifdef DEBUG_ENABLED
-void serialPrintThrottled(String key, String message) {
-  if (lastDebugMessages[key] != message) {
-    Serial.println(String(loopMillis) + " " + message);
-    lastDebugMessages[key] = message;
-  }
-}
-#endif
 
 String stateToString(AppState state) {
   switch (state) {
@@ -266,7 +259,7 @@ String doSetupCancel() {
 }
 
 String doGetDebug() {
-  return buildDebugJson("Debug request");
+  return debugBuilder.buildJson();
 }
 
 String doGetCurrentPanel() {
@@ -382,7 +375,7 @@ void evaluateStateTransitions() {
     }
     case CALIBRATING: {
       if (calibrated) {
-        setCurrentState(MOVING_TO_TARGET); 
+        setCurrentState(MOVING_TO_TARGET);
       }
       break;
     }
@@ -499,9 +492,9 @@ void IRAM_ATTR handleEncoderInterrupt() {
   encoderPulsesRaw += pulseInc;
   encoderPulses = (encoderPulsesRaw + defaultPulse) % PULSES_COUNT;
 
-  #ifdef DEBUG_ENABLED
+#ifdef DEBUG_ENABLED
   encoderInterruptCallCount++;
-  #endif
+#endif
 
   if (pulseInc < 1)
     return;
@@ -515,9 +508,9 @@ void IRAM_ATTR handleEncoderInterrupt() {
     encoderPulses = (encoderPulsesRaw + defaultPulse) % PULSES_COUNT;
     calibrated = true;
 
-    #ifdef DEBUG_ENABLED
+#ifdef DEBUG_ENABLED
     opticalDetectedEdgesCount++;
-    #endif
+#endif
   }
   opticalLastState = opticalState;
 
@@ -564,7 +557,6 @@ void setup() {
   restCommandHandler.registerCommand<int>("setupManual", HTTP_POST, {"pulse"}, doSetupManual);
   restCommandHandler.registerCommand("help", HTTP_GET, doGetRestRoutes);
 
-
   server.begin();
   Serial.println("HTTP server started");
 
@@ -597,7 +589,9 @@ void loop() {
   restCommandHandler.handleClient();
 
 #ifdef DEBUG_ENABLED
-  serialPrintThrottled("ALL", buildDebugJson(""));
+  if (debugBuilder.hasChanged()) {
+    Serial.println(debugBuilder.buildJson());
+  }
 #endif
   lastLoopMillis = loopMillis;  // Update last loop time
 }
