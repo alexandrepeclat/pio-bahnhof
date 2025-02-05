@@ -31,7 +31,7 @@ class DebugBuilder { //TODO Comparer les perfs avec système d'avant : commit be
     CRC32 crc;
     for (const auto& [key, func] : fields) {
       String val = func();
-      crc.update(reinterpret_cast<const uint8_t*>(val.c_str()), val.length());  // Mise à jour du CRC avec les données
+      crc.update(reinterpret_cast<const uint8_t*>(val.c_str()), val.length());  // Mise à jour du CRC avec les données (cast nécessaire sinon va faire le crc de la référence passée)
     }
     return crc.finalize();
   }

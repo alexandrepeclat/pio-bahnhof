@@ -89,7 +89,6 @@ volatile int opticalDetectedEdgesCount = 0;
 #endif
 
 DebugFields debugFields = {
-    {"msg", []() { return "Debug request"; }},
     {"currentPanel", []() { return String(getCurrentPanel()); }},
     {"currentPulses", []() { return String(getCurrentPulses()); }},
     {"targetPanel", []() { return String(getTargetPanel()); }},
@@ -98,14 +97,14 @@ DebugFields debugFields = {
     {"calibrated", []() { return String(calibrated); }},
     {"dist", []() { return String(getRemainingPulses()); }},
     {"servo", []() { return String(servo.read()); }},
-    {"defaultPulse", []() { return String(defaultPulse); }},
-    {"defaultPanel", []() { return String(getDefaultPanel()); }},
-    {"defaultPulseOffset", []() { return String(getDefaultPulseOffset()); }},
+    {"dfltPulse", []() { return String(defaultPulse); }},
+    {"dfltPanel", []() { return String(getDefaultPanel()); }},
+    {"dfltPulseOffset", []() { return String(getDefaultPulseOffset()); }},
     {"state", []() { return stateToString(currentState); }},
 #ifdef DEBUG_ENABLED
     {"encPulsesRaw", []() { return String(encoderPulsesRaw); }},
-    {"opticalDetectedEdgesCount", []() { return String(opticalDetectedEdgesCount); }},
-    {"encoderInterruptCallCount", []() { return String(encoderInterruptCallCount); }},
+    {"optEdgeCount", []() { return String(opticalDetectedEdgesCount); }},
+    {"encIntCount", []() { return String(encoderInterruptCallCount); }},
 #endif
     {"errorMessage", []() { return errorMessage; }},
 };
