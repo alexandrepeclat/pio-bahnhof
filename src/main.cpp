@@ -88,7 +88,7 @@ volatile int encoderInterruptCallCount = 0;
 volatile int opticalDetectedEdgesCount = 0;
 #endif
 
-OrderedFields debugFields = {
+DebugFields debugFields = {
     {"msg", []() { return "Debug request"; }},
     {"currentPanel", []() { return String(getCurrentPanel()); }},
     {"currentPulses", []() { return String(getCurrentPulses()); }},
@@ -110,7 +110,7 @@ OrderedFields debugFields = {
     {"errorMessage", []() { return errorMessage; }},
 };
 
-DebugJsonBuilder debugBuilder(debugFields);
+DebugBuilder debugBuilder(debugFields);
 
 template <typename T>
 void assertError(bool condition, T&& message) {  // TODO fonction de génération pour pas générer pour rien le message

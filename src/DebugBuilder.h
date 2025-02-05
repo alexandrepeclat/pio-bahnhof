@@ -6,11 +6,11 @@
 #include <functional>
 #include <vector>
 
-typedef std::vector<std::pair<String, std::function<String()>>> OrderedFields;
+typedef std::vector<std::pair<String, std::function<String()>>> DebugFields;
 
-class DebugJsonBuilder { //TODO Comparer les perfs avec système d'avant : commit be1997fe6e899b7f2f3032f2f2788ff617f0a662
+class DebugBuilder { //TODO Comparer les perfs avec système d'avant : commit be1997fe6e899b7f2f3032f2f2788ff617f0a662
  public:
-  DebugJsonBuilder(const OrderedFields& fields)
+  DebugBuilder(const DebugFields& fields)
       : fields(fields), previousHash(0) {}
 
   // Méthode pour construire le JSON
@@ -47,7 +47,7 @@ class DebugJsonBuilder { //TODO Comparer les perfs avec système d'avant : commi
   }
 
  private:
-  OrderedFields fields;
+  DebugFields fields;
   uint32_t previousHash;
 
   // Fonction pour échapper les guillemets dans les valeurs JSON
