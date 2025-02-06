@@ -1,6 +1,6 @@
 #ifndef DEBUG_JSON_BUILDER_H
 #define DEBUG_JSON_BUILDER_H
-//TODO ajouter option pour pas hasher certains champs (ne forcent pas le changement)
+// TODO ajouter option pour pas hasher certains champs (ne forcent pas le changement)
 
 #include <Arduino.h>
 #include <CRC32.h>
@@ -9,22 +9,26 @@
 #include <vector>
 
 // Définir le type variant qui peut être un int, float, String, etc.
-using DebugFieldValue = std::variant<int, float, String>;
-
-typedef std::vector<std::pair<String, std::function<DebugFieldValue()>>> DebugFields;
+using DebugFieldValue = std::variant<int, float, String, long, unsigned long, double, bool>;
+using DebugField = std::tuple<String, bool, std::function<DebugFieldValue()>>;
 
 class DebugBuilder {
  public:
-  DebugBuilder(const DebugFields& fields)
+  DebugBuilder(const std::vector<DebugField>& fields)
       : fields(fields), previousHash(0) {}
 
   // Méthode pour construire le JSON
   String buildJson() {
     String json;
     json.reserve(256);  // Préalloue de la mémoire pour éviter les allocations dynamiques
-    for (auto it = fields.begin(); it != fields.end(); ++it) {
-      if (it != fields.begin()) json += ",";
-      json += "\"" + it->first + "\":\"" + escapeString(toString(it->second())) + "\"";
+    json += "{";
+    bool first = true; 
+    for (const auto& [name, includeInHash, func] : fields) {
+      if (!first) {
+        json += ",";
+      }
+      json += "\"" + name + "\":\"" + escapeString(toString(func())) + "\"";
+      first = false;  
     }
     json += "}";
     return json;
@@ -33,12 +37,15 @@ class DebugBuilder {
   // Méthode pour calculer un CRC32 basé sur les valeurs des champs
   uint32_t calculateHash() {
     CRC32 crc;
-    for (const auto& [key, func] : fields) {
-      DebugFieldValue val = func();
-      std::visit([&](auto&& arg) {
-        // Calcul du CRC pour chaque type
-        crc.update(reinterpret_cast<const uint8_t*>(&arg), sizeof(arg));
-      }, val);
+    for (const auto& [name, includeInHash, func] : fields) {
+      if (includeInHash) {  // On vérifie si ce champ doit être inclus dans le hash
+        DebugFieldValue val = func();
+        std::visit([&](auto&& arg) {
+          // Calcul du CRC pour chaque type
+          crc.update(reinterpret_cast<const uint8_t*>(&arg), sizeof(arg));
+        },
+                   val);
+      }
     }
     return crc.finalize();
   }
@@ -54,14 +61,15 @@ class DebugBuilder {
   }
 
  private:
-  DebugFields fields;
+  std::vector<DebugField> fields;
   uint32_t previousHash;
 
   // Fonction pour convertir un DebugFieldValue en String
   String toString(const DebugFieldValue& val) {
     return std::visit([](auto&& arg) -> String {
       return String(arg);  // Convertir tout type en String
-    }, val);
+    },
+                      val);
   }
 
   // Fonction pour échapper les guillemets dans les valeurs JSON
@@ -71,6 +79,5 @@ class DebugBuilder {
     return output;
   }
 };
-
 
 #endif

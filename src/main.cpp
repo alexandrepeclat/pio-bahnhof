@@ -88,42 +88,31 @@ volatile int encoderInterruptCallCount = 0;
 volatile int opticalDetectedEdgesCount = 0;
 #endif
 
-DebugFields debugFields = {
-    {"currentPanel", []() { return getCurrentPanel(); }},
-    {"currentPulses", []() { return getCurrentPulses(); }},
-    {"targetPanel", []() { return getTargetPanel(); }},
-    {"targetPulses", []() { return getTargetPulses(); }},
-    {"optical", []() { return opticalState; }},
-    {"calibrated", []() { return calibrated; }},
-    {"dist", []() { return getRemainingPulses(); }},
-    {"servo", []() { return servo.read(); }},
-    {"dfltPulse", []() { return defaultPulse; }},
-    {"dfltPanel", []() { return getDefaultPanel(); }},
-    {"dfltPulseOffset", []() { return getDefaultPulseOffset(); }},
-    {"state", []() { return stateToString(currentState); }},
+std::vector<DebugField> debugFields = {
+    {"currentPanel", false, [] { return getCurrentPanel(); }},
+    {"currentPulses", true, [] { return getCurrentPulses(); }},
+    {"targetPanel", false, [] { return getTargetPanel(); }},
+    {"targetPulses", true, [] { return getTargetPulses(); }},
+    {"optical", true, [] { return opticalState; }},
+    {"calibrated", true, [] { return calibrated; }},
+    {"dist", false, [] { return getRemainingPulses(); }},
+    {"servo", true, [] { return servo.read(); }}, //TODO à voir parfois une valeur ne change pas mais le hash est différent (se produit dans les états ou le servo tourne)
+    {"dfltPulse", true, [] { return defaultPulse; }},
+    {"dfltPanel", false, [] { return getDefaultPanel(); }},
+    {"dfltPulseOffset", false, [] { return getDefaultPulseOffset(); }},
 #ifdef DEBUG_ENABLED
-    {"encPulsesRaw", []() { return encoderPulsesRaw; }},
-    {"optEdgeCount", []() { return opticalDetectedEdgesCount; }},
-    {"encIntCount", []() { return encoderInterruptCallCount; }},
+    {"encPulsesRaw", false, [] { return encoderPulsesRaw; }},
+    {"optEdgeCount", true, [] { return opticalDetectedEdgesCount; }},
+    {"encIntCount", false, [] { return encoderInterruptCallCount; }},
 #endif
-    {"errorMessage", []() { return errorMessage; }},
+    {"state", true, [] { return stateToString(currentState); }},
+    {"loopDur(us)", false, [] { return loopMicros - lastLoopMicros; }},
+    {"errorMessage", true, [] { return errorMessage; }},
 };
 
 DebugBuilder debugBuilder(debugFields);
 
-template <typename T>
-void callee(T&& message) { 
-  emergencyStop(String(message));
-}
-
-void caller() {
-  callee("toto");
-  callee(1);
-  callee(opticalState);
-  callee(0.3f);
-}
-
-void assertError(bool condition, const std::function<String()>& messageBuilder) {  // TODO fonction de génération pour pas générer pour rien le message
+void assertError(bool condition, const std::function<String()>& messageBuilder) { 
   if (!condition) {
     emergencyStop(messageBuilder());
   }
