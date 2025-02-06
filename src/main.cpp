@@ -112,22 +112,15 @@ unsigned long startTime = micros();  // TOOD virer une fois fini
 
 DebugBuilder debugBuilder(debugFields);
 
-template <typename T>
-void assertError(bool condition, T&& message) {  // TODO fonction de génération pour pas générer pour rien le message
+void assertError(bool condition, const std::function<String()>& messageBuilder) {  // TODO fonction de génération pour pas générer pour rien le message
   if (!condition) {
-    emergencyStop(String(std::forward<T>(message)));
+    emergencyStop(messageBuilder());
   }
 }
 
-void testAssertError() {
-  assertError(true, "test assertError true");
-  assertError(false, 3);
-}
-
-template <typename T>
-void assertWarn(bool condition, T&& message) {
+void assertWarn(bool condition, const std::function<String()>& messageBuilder) {
   if (!condition) {
-    errorMessage = message;
+    errorMessage = messageBuilder();
   }
 }
 
@@ -146,7 +139,7 @@ int getCurrentPulses() {
 }
 
 void setTargetPulses(int pulses) {
-  assertError(pulses >= 0 && pulses < PULSES_COUNT, "pulses " + String(pulses) + " out of bounds");  // TODO à voir si la création du string n'est pas appelée (appeler ici une fonction qui retourne string et print un truc dans serial)
+  assertError(pulses >= 0 && pulses < PULSES_COUNT, [pulses] { return "pulses " + String(pulses) + " out of bounds"; });  // TODO à voir si la création du string n'est pas appelée (appeler ici une fonction qui retourne string et print un truc dans serial)
   targetPulses = pulses;
 }
 
@@ -163,7 +156,7 @@ int getTargetPanel() {
 }
 
 void setTargetPanel(int panel) {
-  assertError(panel < PANELS_COUNT, "panel " + String(panel) + " > " + PANELS_COUNT);
+  assertError(panel < PANELS_COUNT, [panel] { return "panel " + String(panel) + " > " + PANELS_COUNT; });
   setTargetPulses((panel * PULSES_PER_PANEL) + TARGET_PULSE_OFFSET);
 }
 
@@ -224,7 +217,7 @@ String doGetSerialCommands() {
 String doSetupManual(int pulse) {
   defaultPulse = pulse;
   calibrated = false;
-  assertError(defaultPulse >= 0 && defaultPulse < PULSES_COUNT, "defaultPulse " + String(defaultPulse) + " out of bounds [0-" + String(PULSES_COUNT) + "]");
+  assertError(defaultPulse >= 0 && defaultPulse < PULSES_COUNT, [] { return "defaultPulse " + String(defaultPulse) + " out of bounds [0-" + String(PULSES_COUNT) + "]"; });
   saveDefaultPulse();
   return "Setup completed. Default pulse set to " + String(defaultPulse) + ". Default panel is " + String(getDefaultPanel()) + " with offset " + String(getDefaultPulseOffset());
 }
@@ -252,7 +245,7 @@ String doSetupSetPanelNb(int panel) {
 
   setCurrentState(STOPPED);
   defaultPulse = (panel * PULSES_PER_PANEL) - getCurrentPulses();
-  assertError(defaultPulse >= 0 && defaultPulse < PULSES_COUNT, "defaultPulse " + String(defaultPulse) + " out of bounds [0-" + String(PULSES_COUNT) + "]");
+  assertError(defaultPulse >= 0 && defaultPulse < PULSES_COUNT, [] { return "defaultPulse " + String(defaultPulse) + " out of bounds [0-" + String(PULSES_COUNT) + "]"; });
   saveDefaultPulse();
   return "Setup completed. Default pulse set to " + String(defaultPulse) + ". Default panel is " + String(getDefaultPanel()) + " with offset " + String(getDefaultPulseOffset());
 }
@@ -508,7 +501,7 @@ void IRAM_ATTR handleEncoderInterrupt() {  // 4us
   opticalState = (GPIO_REG_READ(GPIO_IN_ADDRESS) >> OPTICAL_SENSOR_PIN) & 1;
   if ((OPTICAL_DETECTED_EDGE == RISING && opticalLastState == LOW && opticalState == HIGH) ||
       (OPTICAL_DETECTED_EDGE == FALLING && opticalLastState == HIGH && opticalState == LOW)) {
-    assertWarn(!calibrated || abs(encoderPulses - defaultPulse) <= 1, "Missing steps ? Optical edge detected at pulse " + String(encoderPulses) + " instead of " + String(PULSES_COUNT));
+    assertWarn(!calibrated || abs(encoderPulses - defaultPulse) <= 1, [] { return "Missing steps ? Optical edge detected at pulse " + String(encoderPulses) + " instead of " + String(PULSES_COUNT); });
     encoderPulsesRaw = 0;
     encoderPulses = (encoderPulsesRaw + defaultPulse) % PULSES_COUNT;
     calibrated = true;
@@ -586,9 +579,9 @@ void setup() {
 void loop() {
   loopMicros = micros();
   connectToWiFi();  // Keep it alive //TODO Wifi non bloquant + voir si problèmes en cas de déconnexion avec le serveur http ou autre
-  readSensors();  // Read sensors and handle edge detection
+  readSensors();    // Read sensors and handle edge detection
   evaluateStateTransitions();
-  processStateActions(); 
+  processStateActions();
   checkForRunningErrors();  // Check for blockages anc co
   serialCommandHandler.handleSerial();
   restCommandHandler.handleClient();
@@ -598,7 +591,7 @@ void loop() {
     Serial.println(debugBuilder.buildJson());
   }
 #endif
-    Serial.println("write: " + String(lastLoopMicros - loopMicros) + " us");
+  Serial.println("write: " + String(lastLoopMicros - loopMicros) + " us");
   lastLoopMicros = loopMicros;  // Update last loop time
 }
 
