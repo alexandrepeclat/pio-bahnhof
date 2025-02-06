@@ -1,6 +1,5 @@
 #ifndef DEBUG_JSON_BUILDER_H
 #define DEBUG_JSON_BUILDER_H
-// TODO ajouter option pour pas hasher certains champs (ne forcent pas le changement)
 
 #include <Arduino.h>
 #include <CRC32.h>

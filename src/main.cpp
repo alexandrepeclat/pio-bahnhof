@@ -96,7 +96,7 @@ std::vector<DebugField> debugFields = {
     {"optical", true, [] { return opticalState; }},
     {"calibrated", true, [] { return calibrated; }},
     {"dist", false, [] { return getRemainingPulses(); }},
-    {"servo", true, [] { return servo.read(); }}, //TODO à voir parfois une valeur ne change pas mais le hash est différent (se produit dans les états ou le servo tourne)
+    {"servo", true, [] { return servo.read(); }},  // TODO à voir parfois une valeur ne change pas mais le hash est différent (se produit dans les états ou le servo tourne)
     {"dfltPulse", true, [] { return defaultPulse; }},
     {"dfltPanel", false, [] { return getDefaultPanel(); }},
     {"dfltPulseOffset", false, [] { return getDefaultPulseOffset(); }},
@@ -112,7 +112,7 @@ std::vector<DebugField> debugFields = {
 
 DebugBuilder debugBuilder(debugFields);
 
-void assertError(bool condition, const std::function<String()>& messageBuilder) { 
+void assertError(bool condition, const std::function<String()>& messageBuilder) {
   if (!condition) {
     emergencyStop(messageBuilder());
   }
@@ -448,15 +448,13 @@ void connectToWiFi() {
 }
 
 void checkForRunningErrors() {
-  // TODO ça fonctionne pas..... avant fonctionnait MAIS avec un délai de 500ms qui me semble très long et y aurait-il moyen d'utiliser la même variable ? problème vu qu'elle est mise à jour à chaque loop, quand le moteur tourne à la loop suivante si le délai est dépassé, ça détecte que ça n'a pas bougé. Voir si alternative possible : https://chatgpt.com/c/678e9109-34b8-8005-ac88-cb9013f09a07
   int motorSpeed = servo.read();
 
   // Detect blockage
-  {
-    static unsigned long lastBlockageCheckTime = 0;  // Time of the last encoder check for blockage
-    static int lastBlockageCheckPulses = 0;
-
-    if (motorSpeed > STOP_SPEED && millis() - lastBlockageCheckTime > BLOCKAGE_TIMEOUT) {
+  static unsigned long lastBlockageCheckTime = 0;  // Time of the last encoder check for blockage
+  static int lastBlockageCheckPulses = 0;
+  if (motorSpeed > STOP_SPEED) {
+    if (millis() - lastBlockageCheckTime > BLOCKAGE_TIMEOUT) {
       if (getCurrentPulses() == lastBlockageCheckPulses) {
         emergencyStop("Blockage detected: Encoder value did not change for " + String(BLOCKAGE_TIMEOUT) + " ms");
       } else if (getCurrentPulses() < lastBlockageCheckPulses) {
@@ -465,20 +463,18 @@ void checkForRunningErrors() {
       // When motor is running, update values only after each timed check
       lastBlockageCheckTime = millis();
       lastBlockageCheckPulses = getCurrentPulses();
-    } else {
-      // When motor is stopped, always update values so when it starts, we wait for a full timeout before 1st check (grace period)
-      lastBlockageCheckTime = millis();
-      lastBlockageCheckPulses = getCurrentPulses();
     }
+  } else {
+    // When motor is stopped, always update values so when it starts, we wait for a full timeout before 1st check (grace period)
+    lastBlockageCheckTime = millis();
+    lastBlockageCheckPulses = getCurrentPulses();
   }
 
   // Detect motor speed out of bounds
-  {
-    if (motorSpeed < 90) {
-      emergencyStop("Motor speed should not be lower than 90");
-    } else if (motorSpeed > 180) {
-      emergencyStop("Motor speed should not be greater than 180");
-    }
+  if (motorSpeed < 90) {
+    emergencyStop("Motor speed should not be lower than 90");
+  } else if (motorSpeed > 180) {
+    emergencyStop("Motor speed should not be greater than 180");
   }
 }
 
