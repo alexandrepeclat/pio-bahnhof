@@ -139,7 +139,7 @@ int getCurrentPulses() {
 }
 
 void setTargetPulses(int pulses) {
-  assertError(pulses >= 0 && pulses < PULSES_COUNT, [pulses] { return "pulses " + String(pulses) + " out of bounds"; });  // TODO à voir si la création du string n'est pas appelée (appeler ici une fonction qui retourne string et print un truc dans serial)
+  assertError(pulses >= 0 && pulses < PULSES_COUNT, [pulses] { return "pulses " + String(pulses) + " out of bounds"; }); 
   targetPulses = pulses;
 }
 
@@ -497,7 +497,7 @@ void IRAM_ATTR handleEncoderInterrupt() {  // 4us
   opticalState = (GPIO_REG_READ(GPIO_IN_ADDRESS) >> OPTICAL_SENSOR_PIN) & 1;
   if ((OPTICAL_DETECTED_EDGE == RISING && opticalLastState == LOW && opticalState == HIGH) ||
       (OPTICAL_DETECTED_EDGE == FALLING && opticalLastState == HIGH && opticalState == LOW)) {
-    assertWarn(!calibrated || abs(encoderPulses - defaultPulse) <= 1, [] { return "Missing steps ? Optical edge detected at pulse " + String(encoderPulses) + " instead of " + String(PULSES_COUNT); });
+    assertWarn(!calibrated || abs(encoderPulses - defaultPulse) <= 1, [] { return "Missing steps ? Optical edge detected at pulse " + String(encoderPulses) + " instead of " + String(PULSES_COUNT); }); //TODO Tester d'une manière ou d'une autre
     encoderPulsesRaw = 0;
     encoderPulses = (encoderPulsesRaw + defaultPulse) % PULSES_COUNT;
     calibrated = true;

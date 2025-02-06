@@ -13,13 +13,7 @@
  TODO réorganiser la détection d'erreurs
  - on a emergencyStop et assertThis un peu interchangeables
  - on a des checks sur des getters ou à des moments dans la logique du code et dans les fonctions dédiées...
- - on a souvent besoin des valeurs de la boucle précédente, donc faudrait les mettre à jour dans une fonction dédiée en fin de boucle
- TODO ? stocker la valeur de l'encodeur dans variable et la remettre à zéro avec l'optique, mais laisser la valeur de l'encodeur originale.
- - ou plutôt afficher la valeur de l'encodeur brute lors du passage de l'optique
- - et faire une variable previousPulses pour voir si une boucle ne loupe pas un step
- - vérifier qu'on a bien atteint le nombre de steps max au moment du passage et afficher un warning sinon
  TODO s'assurer que tous les "getters" utilisés notamment dans les debug ne change pas les états ou valeurs :-)
- TODO état ERROR ? en même temps le flag reste nécessaire car il garantit qu'on peut pas setter à nouveau autre chose via transition ou autre... mais la boucle continue de tourner et calculer des trucs pour rien...
  TODO Vérifier les valeurs passées depuis l'api un peu mieux en terme de limites
  TODO API pour donner la liste des villes ? Dépend du matos après-tout par contre on va pas fournir les traductions pour la reconnaissance vocale ?
  TODO sécuriser API ?
