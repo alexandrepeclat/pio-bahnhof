@@ -1,10 +1,10 @@
+#include <DebugBuilder.h>
 #include <EEPROM.h>
 #include <ESP8266WebServer.h>
 #include <ESP8266WiFi.h>
-#include <Servo.h>
-#include <DebugBuilder.h>
 #include <RestCommandHandler.h>
 #include <SerialCommandHandler.h>
+#include <Servo.h>
 #include <secrets.h>
 #include <map>
 
@@ -53,8 +53,8 @@ const int TARGET_PULSE_OFFSET = 12;  // When setting a target panel, use the nth
 static_assert(TARGET_PULSE_OFFSET >= 0 && TARGET_PULSE_OFFSET < PULSES_PER_PANEL, "OFFSET must be in range [0-PULSES_PER_PANEL]");
 
 // Globals
-unsigned long loopMillis = 0;
-unsigned long lastLoopMillis = 0;  // Variable to store the last loop time
+unsigned long loopMicros = 0;
+unsigned long lastLoopMicros = 0;  // Variable to store the last loop time
 ESP8266WebServer server(80);
 bool errorFlag = false;    // Emergency stop flag
 String errorMessage = "";  // Emergency stop message
@@ -108,14 +108,20 @@ DebugFields debugFields = {
 #endif
     {"errorMessage", []() { return errorMessage; }},
 };
+unsigned long startTime = micros();  // TOOD virer une fois fini
 
 DebugBuilder debugBuilder(debugFields);
 
 template <typename T>
 void assertError(bool condition, T&& message) {  // TODO fonction de génération pour pas générer pour rien le message
   if (!condition) {
-    emergencyStop(std::forward<T>(message));
+    emergencyStop(String(std::forward<T>(message)));
   }
+}
+
+void testAssertError() {
+  assertError(true, "test assertError true");
+  assertError(false, 3);
 }
 
 template <typename T>
@@ -130,13 +136,13 @@ void emergencyStop(String message) {
   setCurrentState(EMERGENCY_STOPPED);
   errorFlag = true;  // TODO à voir mais à priori pas redondant avec le state car les états peuvent être changés par les commandes (sinon faut que chaque commande vérifie que l'état est pas erreur avant de se lancer (ou que la fonction setState() s'en charge !))
   errorMessage = message;
-  Serial.println(String(loopMillis) + " EMERGENCY STOP: " + message);
+  Serial.println(String(loopMicros) + " EMERGENCY STOP: " + message);
 }
 
 int getCurrentPulses() {
-  //noInterrupts(); //TODO à voir ça embete le port série de fonctionner pourtant c'est quand même séquentiel
+  // noInterrupts(); //TODO à voir ça embete le port série de fonctionner pourtant c'est quand même séquentiel
   return encoderPulses;
-  //interrupts();
+  // interrupts();
 }
 
 void setTargetPulses(int pulses) {
@@ -457,18 +463,18 @@ void checkForRunningErrors() {
     static unsigned long lastBlockageCheckTime = 0;  // Time of the last encoder check for blockage
     static int lastBlockageCheckPulses = 0;
 
-    if (motorSpeed > STOP_SPEED && loopMillis - lastBlockageCheckTime > BLOCKAGE_TIMEOUT) {
+    if (motorSpeed > STOP_SPEED && loopMicros - lastBlockageCheckTime > BLOCKAGE_TIMEOUT) {
       if (getCurrentPulses() == lastBlockageCheckPulses) {
         emergencyStop("Blockage detected: Encoder value did not change for " + String(BLOCKAGE_TIMEOUT) + " ms");
       } else if (getCurrentPulses() < lastBlockageCheckPulses) {
         emergencyStop("Blockage detected: Encoder value decreased");
       }
       // When motor is running, update values only after each timed check
-      lastBlockageCheckTime = loopMillis;
+      lastBlockageCheckTime = loopMicros;
       lastBlockageCheckPulses = getCurrentPulses();
     } else {
       // When motor is stopped, always update values so when it starts, we wait for a full timeout before 1st check (grace period)
-      lastBlockageCheckTime = loopMillis;
+      lastBlockageCheckTime = loopMicros;
       lastBlockageCheckPulses = getCurrentPulses();
     }
   }
@@ -483,7 +489,7 @@ void checkForRunningErrors() {
   }
 }
 
-void IRAM_ATTR handleEncoderInterrupt() {
+void IRAM_ATTR handleEncoderInterrupt() {  // 4us
   byte pinA = (GPIO_REG_READ(GPIO_IN_ADDRESS) >> ENCODER_PIN_A) & 1;
   byte pinB = (GPIO_REG_READ(GPIO_IN_ADDRESS) >> ENCODER_PIN_B) & 1;
   encoderState = ((encoderState << 2) | (pinA << 1) | pinB) & 15;  // Décale et masque les bits
@@ -578,21 +584,22 @@ void setup() {
 }
 
 void loop() {
+  loopMicros = micros();
   connectToWiFi();  // Keep it alive //TODO Wifi non bloquant + voir si problèmes en cas de déconnexion avec le serveur http ou autre
-  loopMillis = millis();
   readSensors();  // Read sensors and handle edge detection
   evaluateStateTransitions();
-  processStateActions();
+  processStateActions(); 
   checkForRunningErrors();  // Check for blockages anc co
   serialCommandHandler.handleSerial();
   restCommandHandler.handleClient();
 
 #ifdef DEBUG_ENABLED
-  if (debugBuilder.hasChanged()) {
+  if (debugBuilder.hasChanged()) {  // 156 us
     Serial.println(debugBuilder.buildJson());
   }
 #endif
-  lastLoopMillis = loopMillis;  // Update last loop time
+    Serial.println("write: " + String(lastLoopMicros - loopMicros) + " us");
+  lastLoopMicros = loopMicros;  // Update last loop time
 }
 
 void setMotorSpeed(float normalizedSpeed) {
@@ -605,5 +612,7 @@ void setMotorSpeed(float normalizedSpeed) {
   // Constrain normalized speed and map it to servo speed values
   normalizedSpeed = constrain(normalizedSpeed, 0.f, 1.f);
   int speed = map(normalizedSpeed * 100, 0, 100, STOP_SPEED, RUN_SPEED);
-  servo.write(speed);
+  if (servo.read() != speed) {
+    servo.write(speed);  // Skip if speed did not change (~20ms)
+  }
 }

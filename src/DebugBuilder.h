@@ -7,8 +7,10 @@
 #include <vector>
 
 typedef std::vector<std::pair<String, std::function<String()>>> DebugFields;
-
-class DebugBuilder { //TODO Comparer les perfs avec système d'avant : commit be1997fe6e899b7f2f3032f2f2788ff617f0a662
+  //TODO Comparer les perfs avec système d'avant : commit be1997fe6e899b7f2f3032f2f2788ff617f0a662
+//TODO hasher les valeurs sans convertir en string
+//TODO ajouter option pour pas hasher certains champs (ne forcent pas le changement)
+class DebugBuilder { 
  public:
   DebugBuilder(const DebugFields& fields)
       : fields(fields), previousHash(0) {}
