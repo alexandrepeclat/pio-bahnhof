@@ -19,6 +19,17 @@ enum AppState {
   SETUP_WAITING_COMMAND
 };
 
+const std::map<AppState, std::vector<AppState>> transitionTable = {
+  {EMERGENCY_STOPPED, {STOPPED}},
+  {STOPPED, {EMERGENCY_STOPPED, AUTO_CALIBRATING, MOVING_TO_TARGET, CALIBRATING, SETUP_GO_TO_ZERO}},
+  {AUTO_CALIBRATING, {EMERGENCY_STOPPED, MOVING_TO_TARGET}},
+  {MOVING_TO_TARGET, {EMERGENCY_STOPPED, STOPPED, AUTO_CALIBRATING}},
+  {CALIBRATING, {EMERGENCY_STOPPED, MOVING_TO_TARGET}},
+  {SETUP_GO_TO_ZERO, {EMERGENCY_STOPPED, SETUP_WAITING_COMMAND}},
+  {SETUP_MOVE_PULSE, {EMERGENCY_STOPPED, SETUP_WAITING_COMMAND}},
+  {SETUP_WAITING_COMMAND, {EMERGENCY_STOPPED, SETUP_MOVE_PULSE, SETUP_GO_TO_ZERO, STOPPED}}
+};
+
 // Prototypes declaration
 int getCurrentPulses();
 int getCurrentPanel();
@@ -30,7 +41,7 @@ void setTargetPanel(int panel);
 int getTargetPanel();
 void emergencyStop(String message);
 String stateToString(AppState state);
-void setCurrentState(AppState newState);
+bool setCurrentState(AppState newState);
 void saveDefaultPulse();
 void loadDefaultPulse();
 int getDefaultPanel();
@@ -126,8 +137,8 @@ void assertWarn(bool condition, const std::function<String()>& messageBuilder) {
 
 void emergencyStop(String message) {
   servo.write(STOP_SPEED);  // First things first, stop the motor
-  setCurrentState(EMERGENCY_STOPPED);
   errorFlag = true;  // TODO à voir mais à priori pas redondant avec le state car les états peuvent être changés par les commandes (sinon faut que chaque commande vérifie que l'état est pas erreur avant de se lancer (ou que la fonction setState() s'en charge !))
+  setCurrentState(EMERGENCY_STOPPED);
   errorMessage = message;
   Serial.println(String(loopMicros) + " EMERGENCY STOP: " + message);
 }
@@ -191,8 +202,26 @@ String stateToString(AppState state) {
   }
 }
 
-void setCurrentState(AppState newState) {
-  currentState = newState;
+bool isTransitionAllowed(AppState currentState, AppState nextState) {
+  if (currentState == nextState) {
+    return true;
+  }
+  auto it = transitionTable.find(currentState);
+  if (it != transitionTable.end()) {
+    const std::vector<AppState>& allowedStates = it->second;
+    return std::find(allowedStates.begin(), allowedStates.end(), nextState) != allowedStates.end();
+  }
+  return false;
+}
+
+bool setCurrentState(AppState newState) {
+  if (isTransitionAllowed(currentState, newState)) {
+    currentState = newState;
+    return true;
+  } else {
+    assertWarn(false, [newState] { return "Invalid state transition " + stateToString(currentState) + " -> " + stateToString(newState) ; });
+    return false;
+  }
 }
 
 void saveDefaultPulse() {
@@ -240,7 +269,7 @@ String doSetupNextPulse() {
 
 String doSetupSetPanelNb(int panel) {
   if (currentState != SETUP_WAITING_COMMAND) {
-    return "Invalid state for this command. Call 'setupStart' first.";
+    return "Invalid state for this command. Call 'setupStart' first."; //TODO checker via la fonction des transitions autorisées (partout) et compléter la table
   }
 
   setCurrentState(STOPPED);
@@ -509,9 +538,11 @@ void IRAM_ATTR handleEncoderInterrupt() {  // 4us
   opticalLastState = opticalState;
 
   // Check if the target is reached
-  if (currentState == MOVING_TO_TARGET && targetPulses == encoderPulses) {
-    currentState = STOPPED;  // TODO pas fan de traiter la transition d'état ici... et on le fait aussi dans la loop et attention car faut protéger la lecture de currentState contre les interruptions
-  }
+  // if (currentState == MOVING_TO_TARGET && targetPulses == encoderPulses) {
+  //   setCurrentState(STOPPED);  // TODO pas fan de traiter la transition d'état ici... et on le fait aussi dans la loop et attention car faut protéger la lecture de currentState contre les interruptions
+  // } //TODO à vérifier mais en fait ça sert à rien de faire ça ici car ça va de toute manière attendre la loop pour vérifier si transition, ça sera le cas, ça change direct l'état, et ça process motor à 0 direct dans 1 loop (normalement !)
+  //Vérifier en pratique via une valeur de debug
+  //TODO virer "volatile" si on vire ça
 }
 
 void setup() {
