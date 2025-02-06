@@ -89,28 +89,39 @@ volatile int opticalDetectedEdgesCount = 0;
 #endif
 
 DebugFields debugFields = {
-    {"currentPanel", []() { return String(getCurrentPanel()); }},
-    {"currentPulses", []() { return String(getCurrentPulses()); }},
-    {"targetPanel", []() { return String(getTargetPanel()); }},
-    {"targetPulses", []() { return String(getTargetPulses()); }},
-    {"optical", []() { return String(opticalState); }},
-    {"calibrated", []() { return String(calibrated); }},
-    {"dist", []() { return String(getRemainingPulses()); }},
-    {"servo", []() { return String(servo.read()); }},
-    {"dfltPulse", []() { return String(defaultPulse); }},
-    {"dfltPanel", []() { return String(getDefaultPanel()); }},
-    {"dfltPulseOffset", []() { return String(getDefaultPulseOffset()); }},
+    {"currentPanel", []() { return getCurrentPanel(); }},
+    {"currentPulses", []() { return getCurrentPulses(); }},
+    {"targetPanel", []() { return getTargetPanel(); }},
+    {"targetPulses", []() { return getTargetPulses(); }},
+    {"optical", []() { return opticalState; }},
+    {"calibrated", []() { return calibrated; }},
+    {"dist", []() { return getRemainingPulses(); }},
+    {"servo", []() { return servo.read(); }},
+    {"dfltPulse", []() { return defaultPulse; }},
+    {"dfltPanel", []() { return getDefaultPanel(); }},
+    {"dfltPulseOffset", []() { return getDefaultPulseOffset(); }},
     {"state", []() { return stateToString(currentState); }},
 #ifdef DEBUG_ENABLED
-    {"encPulsesRaw", []() { return String(encoderPulsesRaw); }},
-    {"optEdgeCount", []() { return String(opticalDetectedEdgesCount); }},
-    {"encIntCount", []() { return String(encoderInterruptCallCount); }},
+    {"encPulsesRaw", []() { return encoderPulsesRaw; }},
+    {"optEdgeCount", []() { return opticalDetectedEdgesCount; }},
+    {"encIntCount", []() { return encoderInterruptCallCount; }},
 #endif
     {"errorMessage", []() { return errorMessage; }},
 };
-unsigned long startTime = micros();  // TOOD virer une fois fini
 
 DebugBuilder debugBuilder(debugFields);
+
+template <typename T>
+void callee(T&& message) { 
+  emergencyStop(String(message));
+}
+
+void caller() {
+  callee("toto");
+  callee(1);
+  callee(opticalState);
+  callee(0.3f);
+}
 
 void assertError(bool condition, const std::function<String()>& messageBuilder) {  // TODO fonction de génération pour pas générer pour rien le message
   if (!condition) {
@@ -456,18 +467,18 @@ void checkForRunningErrors() {
     static unsigned long lastBlockageCheckTime = 0;  // Time of the last encoder check for blockage
     static int lastBlockageCheckPulses = 0;
 
-    if (motorSpeed > STOP_SPEED && loopMicros - lastBlockageCheckTime > BLOCKAGE_TIMEOUT) {
+    if (motorSpeed > STOP_SPEED && millis() - lastBlockageCheckTime > BLOCKAGE_TIMEOUT) {
       if (getCurrentPulses() == lastBlockageCheckPulses) {
         emergencyStop("Blockage detected: Encoder value did not change for " + String(BLOCKAGE_TIMEOUT) + " ms");
       } else if (getCurrentPulses() < lastBlockageCheckPulses) {
         emergencyStop("Blockage detected: Encoder value decreased");
       }
       // When motor is running, update values only after each timed check
-      lastBlockageCheckTime = loopMicros;
+      lastBlockageCheckTime = millis();
       lastBlockageCheckPulses = getCurrentPulses();
     } else {
       // When motor is stopped, always update values so when it starts, we wait for a full timeout before 1st check (grace period)
-      lastBlockageCheckTime = loopMicros;
+      lastBlockageCheckTime = millis();
       lastBlockageCheckPulses = getCurrentPulses();
     }
   }
@@ -587,11 +598,10 @@ void loop() {
   restCommandHandler.handleClient();
 
 #ifdef DEBUG_ENABLED
-  if (debugBuilder.hasChanged()) {  // 156 us
+  if (debugBuilder.hasChanged()) {  // 110 us
     Serial.println(debugBuilder.buildJson());
   }
 #endif
-  Serial.println("write: " + String(lastLoopMicros - loopMicros) + " us");
   lastLoopMicros = loopMicros;  // Update last loop time
 }
 
