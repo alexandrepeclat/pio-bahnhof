@@ -7,6 +7,8 @@
 #include <Servo.h>
 #include <secrets.h>
 #include <map>
+#include <set>
+
 
 enum AppState {
   EMERGENCY_STOPPED,
@@ -17,17 +19,6 @@ enum AppState {
   SETUP_GO_TO_ZERO,
   SETUP_MOVE_PULSE,
   SETUP_WAITING_COMMAND
-};
-
-const std::map<AppState, std::vector<AppState>> transitionTable = {
-  {EMERGENCY_STOPPED, {STOPPED}},
-  {STOPPED, {EMERGENCY_STOPPED, AUTO_CALIBRATING, MOVING_TO_TARGET, CALIBRATING, SETUP_GO_TO_ZERO}},
-  {AUTO_CALIBRATING, {EMERGENCY_STOPPED, MOVING_TO_TARGET}},
-  {MOVING_TO_TARGET, {EMERGENCY_STOPPED, STOPPED, AUTO_CALIBRATING}},
-  {CALIBRATING, {EMERGENCY_STOPPED, MOVING_TO_TARGET}},
-  {SETUP_GO_TO_ZERO, {EMERGENCY_STOPPED, SETUP_WAITING_COMMAND}},
-  {SETUP_MOVE_PULSE, {EMERGENCY_STOPPED, SETUP_WAITING_COMMAND}},
-  {SETUP_WAITING_COMMAND, {EMERGENCY_STOPPED, SETUP_MOVE_PULSE, SETUP_GO_TO_ZERO, STOPPED}}
 };
 
 // Prototypes declaration
@@ -41,7 +32,7 @@ void setTargetPanel(int panel);
 int getTargetPanel();
 void emergencyStop(String message);
 String stateToString(AppState state);
-bool setCurrentState(AppState newState);
+void setCurrentState(AppState newState);
 void saveDefaultPulse();
 void loadDefaultPulse();
 int getDefaultPanel();
@@ -202,26 +193,8 @@ String stateToString(AppState state) {
   }
 }
 
-bool isTransitionAllowed(AppState currentState, AppState nextState) {
-  if (currentState == nextState) {
-    return true;
-  }
-  auto it = transitionTable.find(currentState);
-  if (it != transitionTable.end()) {
-    const std::vector<AppState>& allowedStates = it->second;
-    return std::find(allowedStates.begin(), allowedStates.end(), nextState) != allowedStates.end();
-  }
-  return false;
-}
-
-bool setCurrentState(AppState newState) {
-  if (isTransitionAllowed(currentState, newState)) {
+void setCurrentState(AppState newState) {
     currentState = newState;
-    return true;
-  } else {
-    assertWarn(false, [newState] { return "Invalid state transition " + stateToString(currentState) + " -> " + stateToString(newState) ; });
-    return false;
-  }
 }
 
 void saveDefaultPulse() {
@@ -282,7 +255,7 @@ String doSetupSetPanelNb(int panel) {
 String doSetupCancel() {
   setCurrentState(STOPPED);
   loadDefaultPulse();
-  return "Setup canceld. Default pulse retored to " + String(defaultPulse);
+  return "Setup canceled. Default pulse retored to " + String(defaultPulse);
 }
 
 String doGetDebug() {
@@ -293,7 +266,30 @@ String doGetCurrentPanel() {
   return String(getCurrentPanel());
 }
 
+
+boolean isCurrentState(const AppState* allowedStates) {
+  for (int i = 0; i < sizeof(allowedStates); i++) {
+    if (currentState == allowedStates[i]) {
+      return true;
+    }
+  }
+  return false;
+}
+
+String statesToString(const AppState* states) {
+  String result = "";
+  for (int i = 0; i < sizeof(states); i++) {
+    result += stateToString(states[i]) + " ";
+  }
+  return result;
+}
+
 String doMoveToPanel(int panel) {
+  const AppState allowedStates[] = {STOPPED, MOVING_TO_TARGET, AUTO_CALIBRATING}; //TODO utiliser ça partout ?
+  if (!isCurrentState(allowedStates)) {
+    return "Invalid state "+stateToString(currentState)+ " for this command. Allowed states are " + statesToString(allowedStates);
+  }
+
   if (panel > PANELS_COUNT) {
     return "Panel " + String(panel) + " out of bounds [0-" + String(PANELS_COUNT) + "]";
   }
