@@ -9,7 +9,6 @@
 #include <map>
 #include <set>
 
-
 enum AppState {
   EMERGENCY_STOPPED,
   STOPPED,
@@ -37,6 +36,8 @@ void saveDefaultPulse();
 void loadDefaultPulse();
 int getDefaultPanel();
 int getDefaultPulseOffset();
+float normalizeSpeed(int speed);
+int denormalizeSpeed(float normalizedSpeed);
 
 #define DEBUG_ENABLED
 
@@ -82,12 +83,33 @@ Servo servo;
 const int STOP_SPEED = 90;  // Valeur pour arrêter le servo
 const int RUN_SPEED = 140;  // Vitesse du servo pour avancer (91-180) 140 c'est bien (met 6 secondes à faire un tour)
 static_assert(RUN_SPEED > 90, "RUN_SPEED must be greater than 90 or everything will break !");
-const unsigned long BLOCKAGE_TIMEOUT = 500;  // Timeout in milliseconds to detect blockage
+const unsigned long BLOCKAGE_TIMEOUT = 250;          // Timeout (ms) between blockage detection checks
+const unsigned long BLOCKAGE_TIMEOUT_WARMUP = 1000;  // Time to wait before starting blockage detection when motor is starting //TODO revoir ces valeurs et celui-ci pourrait être moins
+const int BLOCKAGE_RPM_AT_MAX_SPEED = 10;            // Expected RPM when servo is at max speed
+const float BLOCKAGE_RPM_TOLERANCE = 0.90;           // Tolerance for blockage detection speed
+float blockageActualRPM = 0.0;
+float blockageExpectedRPM = 0.0;
 
 #ifdef DEBUG_ENABLED
 volatile int encoderPulsesRaw = 0;
 volatile int encoderInterruptCallCount = 0;
 volatile int opticalDetectedEdgesCount = 0;
+
+int getCurrentRpm() {
+  static int lastPulses = 0;
+  static unsigned long lastTime = 0;
+  int currentPulses = getCurrentPulses();
+  unsigned long currentTime = millis();
+  unsigned long elapsedTime = currentTime - lastTime;
+  if (elapsedTime == 0)
+    return 0;  // Évite la division par zéro
+  int pulsesDelta = (currentPulses - lastPulses + PULSES_COUNT) % PULSES_COUNT; //TODO copié coller avec checkForRunningErrors()
+  float rpm = (pulsesDelta * 60000.0) / (elapsedTime * PULSES_COUNT);
+  lastPulses = currentPulses;
+  lastTime = currentTime;
+  return rpm;
+}
+
 #endif
 
 std::vector<DebugField> debugFields = {
@@ -103,6 +125,9 @@ std::vector<DebugField> debugFields = {
     {"dfltPanel", false, [] { return getDefaultPanel(); }},
     {"dfltPulseOffset", false, [] { return getDefaultPulseOffset(); }},
 #ifdef DEBUG_ENABLED
+    {"rpm", false, [] { return getCurrentRpm(); }},
+    {"bActRpm", false, [] { return blockageActualRPM; }},
+    {"bExpRpm", false, [] { return blockageExpectedRPM; }},
     {"encPulsesRaw", false, [] { return encoderPulsesRaw; }},
     {"optEdgeCount", true, [] { return opticalDetectedEdgesCount; }},
     {"encIntCount", false, [] { return encoderInterruptCallCount; }},
@@ -128,7 +153,7 @@ void assertWarn(bool condition, const std::function<String()>& messageBuilder) {
 
 void emergencyStop(String message) {
   servo.write(STOP_SPEED);  // First things first, stop the motor
-  errorFlag = true;  // TODO à voir mais à priori pas redondant avec le state car les états peuvent être changés par les commandes (sinon faut que chaque commande vérifie que l'état est pas erreur avant de se lancer (ou que la fonction setState() s'en charge !))
+  errorFlag = true;         // TODO à voir mais à priori pas redondant avec le state car les états peuvent être changés par les commandes (sinon faut que chaque commande vérifie que l'état est pas erreur avant de se lancer (ou que la fonction setState() s'en charge !))
   setCurrentState(EMERGENCY_STOPPED);
   errorMessage = message;
   Serial.println(String(loopMicros) + " EMERGENCY STOP: " + message);
@@ -141,7 +166,7 @@ int getCurrentPulses() {
 }
 
 void setTargetPulses(int pulses) {
-  assertError(pulses >= 0 && pulses < PULSES_COUNT, [pulses] { return "pulses " + String(pulses) + " out of bounds"; }); 
+  assertError(pulses >= 0 && pulses < PULSES_COUNT, [pulses] { return "pulses " + String(pulses) + " out of bounds"; });
   targetPulses = pulses;
 }
 
@@ -194,7 +219,7 @@ String stateToString(AppState state) {
 }
 
 void setCurrentState(AppState newState) {
-    currentState = newState;
+  currentState = newState;
 }
 
 void saveDefaultPulse() {
@@ -242,7 +267,7 @@ String doSetupNextPulse() {
 
 String doSetupSetPanelNb(int panel) {
   if (currentState != SETUP_WAITING_COMMAND) {
-    return "Invalid state for this command. Call 'setupStart' first."; //TODO checker via la fonction des transitions autorisées (partout) et compléter la table
+    return "Invalid state for this command. Call 'setupStart' first.";  // TODO checker via la fonction des transitions autorisées (partout) et compléter la table
   }
 
   setCurrentState(STOPPED);
@@ -266,7 +291,6 @@ String doGetCurrentPanel() {
   return String(getCurrentPanel());
 }
 
-
 boolean isCurrentState(const AppState* allowedStates) {
   for (int i = 0; i < sizeof(allowedStates); i++) {
     if (currentState == allowedStates[i]) {
@@ -285,9 +309,9 @@ String statesToString(const AppState* states) {
 }
 
 String doMoveToPanel(int panel) {
-  const AppState allowedStates[] = {STOPPED, MOVING_TO_TARGET, AUTO_CALIBRATING}; //TODO utiliser ça partout ?
+  const AppState allowedStates[] = {STOPPED, MOVING_TO_TARGET, AUTO_CALIBRATING};  // TODO utiliser ça partout ?
   if (!isCurrentState(allowedStates)) {
-    return "Invalid state "+stateToString(currentState)+ " for this command. Allowed states are " + statesToString(allowedStates);
+    return "Invalid state " + stateToString(currentState) + " for this command. Allowed states are " + statesToString(allowedStates);
   }
 
   if (panel > PANELS_COUNT) {
@@ -475,24 +499,37 @@ void connectToWiFi() {
 void checkForRunningErrors() {
   int motorSpeed = servo.read();
 
-  // Detect blockage
-  static unsigned long lastBlockageCheckTime = 0;  // Time of the last encoder check for blockage
-  static int lastBlockageCheckPulses = 0;
+  static unsigned long lastCheckTime = 0;
+  static int lastEncoderPulses = 0;
+  static unsigned long warmupTimeout = BLOCKAGE_TIMEOUT_WARMUP;
+
   if (motorSpeed > STOP_SPEED) {
-    if (millis() - lastBlockageCheckTime > BLOCKAGE_TIMEOUT) {
-      if (getCurrentPulses() == lastBlockageCheckPulses) {
-        emergencyStop("Blockage detected: Encoder value did not change for " + String(BLOCKAGE_TIMEOUT) + " ms");
-      } else if (getCurrentPulses() < lastBlockageCheckPulses) {
-        emergencyStop("Blockage detected: Encoder value decreased");
+    unsigned long currentTime = millis();                     // Temps actuel
+    unsigned long elapsedTime = currentTime - lastCheckTime;  // Temps écoulé depuis la dernière vérification
+
+    if (elapsedTime > BLOCKAGE_TIMEOUT + warmupTimeout) {
+      int currentPulses = getCurrentPulses();
+      int pulsesDelta = (currentPulses - lastEncoderPulses + PULSES_COUNT) % PULSES_COUNT;
+      blockageExpectedRPM = BLOCKAGE_RPM_AT_MAX_SPEED * normalizeSpeed(motorSpeed) * BLOCKAGE_RPM_TOLERANCE;
+      blockageActualRPM = (pulsesDelta * 60000.0) / (elapsedTime * PULSES_COUNT);
+      if (blockageActualRPM < blockageExpectedRPM) {
+        emergencyStop("Blockage detected: motorSpeed=" + String(motorSpeed)    //
+                      + " blockageActualRPM=" + String(blockageActualRPM)      //
+                      + " blockageExpectedRPM=" + String(blockageExpectedRPM)  //
+                      + " pulsesDelta=" + String(pulsesDelta)                  //
+                      + " elapsedTime=" + String(elapsedTime));
       }
-      // When motor is running, update values only after each timed check
-      lastBlockageCheckTime = millis();
-      lastBlockageCheckPulses = getCurrentPulses();
+
+      // Mettre à jour les valeurs de référence
+      lastCheckTime = currentTime;
+      lastEncoderPulses = currentPulses;
+      warmupTimeout = 0l;  // No warmup before next checks
     }
   } else {
-    // When motor is stopped, always update values so when it starts, we wait for a full timeout before 1st check (grace period)
-    lastBlockageCheckTime = millis();
-    lastBlockageCheckPulses = getCurrentPulses();
+    // Réinitialise les valeurs quand le moteur est à l’arrêt
+    lastCheckTime = millis();
+    lastEncoderPulses = getCurrentPulses();
+    warmupTimeout = BLOCKAGE_TIMEOUT_WARMUP;  // Set warmup for next motor start before checks
   }
 
   // Detect motor speed out of bounds
@@ -522,7 +559,7 @@ void IRAM_ATTR handleEncoderInterrupt() {  // 4us
   opticalState = (GPIO_REG_READ(GPIO_IN_ADDRESS) >> OPTICAL_SENSOR_PIN) & 1;
   if ((OPTICAL_DETECTED_EDGE == RISING && opticalLastState == LOW && opticalState == HIGH) ||
       (OPTICAL_DETECTED_EDGE == FALLING && opticalLastState == HIGH && opticalState == LOW)) {
-    assertWarn(!calibrated || abs(encoderPulses - defaultPulse) <= 1, [] { return "Missing steps ? Optical edge detected at pulse " + String(encoderPulses) + " instead of " + String(PULSES_COUNT); }); //TODO Tester d'une manière ou d'une autre
+    assertWarn(!calibrated || abs(encoderPulses - defaultPulse) <= 1, [] { return "Missing steps ? Optical edge detected at pulse " + String(encoderPulses) + " instead of " + String(PULSES_COUNT); });  // TODO Tester d'une manière ou d'une autre
     encoderPulsesRaw = 0;
     encoderPulses = (encoderPulsesRaw + defaultPulse) % PULSES_COUNT;
     calibrated = true;
@@ -534,11 +571,9 @@ void IRAM_ATTR handleEncoderInterrupt() {  // 4us
   opticalLastState = opticalState;
 
   // Check if the target is reached
-  // if (currentState == MOVING_TO_TARGET && targetPulses == encoderPulses) {
-  //   setCurrentState(STOPPED);  // TODO pas fan de traiter la transition d'état ici... et on le fait aussi dans la loop et attention car faut protéger la lecture de currentState contre les interruptions
-  // } //TODO à vérifier mais en fait ça sert à rien de faire ça ici car ça va de toute manière attendre la loop pour vérifier si transition, ça sera le cas, ça change direct l'état, et ça process motor à 0 direct dans 1 loop (normalement !)
-  //Vérifier en pratique via une valeur de debug
-  //TODO virer "volatile" si on vire ça
+  if (currentState == MOVING_TO_TARGET && targetPulses == encoderPulses) {
+    currentState = STOPPED;  // TODO pas fan de traiter la transition d'état ici... et on le fait aussi dans la loop et attention car faut protéger la lecture de currentState contre les interruptions
+  }  // TODO j'aimerais tout faire dans la boucle, mais le temps que la boucle soit lancée, l'encodeur dépasse le target et la machine d'état voit qu'on a pas atteint la cible et repart pour un tour
 }
 
 void setup() {
@@ -605,7 +640,7 @@ void loop() {
   readSensors();    // Read sensors and handle edge detection
   evaluateStateTransitions();
   processStateActions();
-  checkForRunningErrors();  // Check for blockages anc co
+  checkForRunningErrors();  // Check for blockages and co
   serialCommandHandler.handleSerial();
   restCommandHandler.handleClient();
 
@@ -615,6 +650,7 @@ void loop() {
   }
 #endif
   lastLoopMicros = loopMicros;  // Update last loop time
+  delay(1);
 }
 
 void setMotorSpeed(float normalizedSpeed) {
@@ -626,8 +662,16 @@ void setMotorSpeed(float normalizedSpeed) {
 
   // Constrain normalized speed and map it to servo speed values
   normalizedSpeed = constrain(normalizedSpeed, 0.f, 1.f);
-  int speed = map(normalizedSpeed * 100, 0, 100, STOP_SPEED, RUN_SPEED);
+  int speed = denormalizeSpeed(normalizedSpeed);
   if (servo.read() != speed) {
     servo.write(speed);  // Skip if speed did not change (~20ms)
   }
+}
+
+float normalizeSpeed(int speed) {
+  return map(speed, STOP_SPEED, RUN_SPEED, 0, 100) / 100.f;
+}
+
+int denormalizeSpeed(float normalizedSpeed) {
+  return map(normalizedSpeed * 100, 0, 100, STOP_SPEED, RUN_SPEED);
 }
