@@ -36,6 +36,7 @@ void saveDefaultPulse();
 void loadDefaultPulse();
 int getDefaultPanel();
 int getDefaultPulseOffset();
+int getCurrentRpm();
 float normalizeSpeed(int speed);
 int denormalizeSpeed(float normalizedSpeed);
 int computePulsesDistanceForward(int from, int to);
@@ -291,7 +292,7 @@ String doGetCurrentPanel() {
 }
 
 boolean isCurrentState(const AppState* allowedStates) {
-  for (int i = 0; i < sizeof(allowedStates); i++) {
+  for (unsigned int i = 0; i < sizeof(allowedStates); i++) {
     if (currentState == allowedStates[i]) {
       return true;
     }
@@ -301,7 +302,7 @@ boolean isCurrentState(const AppState* allowedStates) {
 
 String statesToString(const AppState* states) {
   String result = "";
-  for (int i = 0; i < sizeof(states); i++) {
+  for (unsigned int i = 0; i < sizeof(states); i++) {
     result += stateToString(states[i]) + " ";
   }
   return result;
