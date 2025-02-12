@@ -40,6 +40,7 @@ float normalizeSpeed(int speed);
 int denormalizeSpeed(float normalizedSpeed);
 int computePulsesDistanceForward(int from, int to);
 int computePulsesDistanceBothWays(int from, int to);
+int computeRpm(int lastPulses, int currentPulses, unsigned long lastTime, unsigned long currentTime);
 
 #define DEBUG_ENABLED
 
@@ -98,14 +99,18 @@ int getCurrentRpm() {
   static unsigned long lastTime = 0;
   int currentPulses = getCurrentPulses();
   unsigned long currentTime = millis();
-  unsigned long elapsedTime = currentTime - lastTime;
-  if (elapsedTime == 0)
-    return 0;  // Évite la division par zéro
-  int pulsesDelta = computePulsesDistanceForward(lastPulses, currentPulses); //TODO copié coller avec checkForRunningErrors()
-  float rpm = (pulsesDelta * 60000.0) / (elapsedTime * PULSES_COUNT);
+  int rpm = computeRpm(lastPulses, currentPulses, lastTime, currentTime);
   lastPulses = currentPulses;
   lastTime = currentTime;
   return rpm;
+}
+
+int computeRpm(int lastPulses, int currentPulses, unsigned long lastTime, unsigned long currentTime) {
+  unsigned long elapsedTime = currentTime - lastTime;
+  if (elapsedTime == 0)
+    return 0;  // Avoid divide by 0
+  int pulsesDelta = computePulsesDistanceForward(lastPulses, currentPulses);
+  return (pulsesDelta * 60000.0) / (elapsedTime * PULSES_COUNT);
 }
 
 #endif
@@ -158,7 +163,7 @@ void emergencyStop(String message) {
 
 int IRAM_ATTR getCurrentPulses() {
   int encoderPulses = encoderPulsesRaw;
-  return (encoderPulses + defaultPulse) % PULSES_COUNT;//TODO à voir mais en principe ça sert à rien de sortir dans une var locale dans le but de rendre ça atomic
+  return (encoderPulses + defaultPulse) % PULSES_COUNT;  // TODO à voir mais en principe ça sert à rien de sortir dans une var locale dans le but de rendre ça atomic
 }
 
 void setTargetPulses(int pulses) {
@@ -504,7 +509,7 @@ void connectToWiFi() {
 void checkForRunningErrors() {
   int motorSpeed = servo.read();
 
-  // static unsigned long lastCheckTime = 0; //TODO marche pas bien détecte faux positifs lors d'accélérations décélérations
+  // static unsigned long lastCheckTime = 0;  // TODO marche pas bien détecte faux positifs lors d'accélérations décélérations
   // static int lastEncoderPulses = 0;
   // static unsigned long warmupTimeout = BLOCKAGE_TIMEOUT_WARMUP;
 
@@ -514,14 +519,14 @@ void checkForRunningErrors() {
 
   //   if (elapsedTime > BLOCKAGE_TIMEOUT + warmupTimeout) {
   //     int currentPulses = getCurrentPulses();
-  //     int pulsesDelta = computePulsesDistanceForward(lastEncoderPulses, currentPulses);
   //     blockageExpectedRPM = BLOCKAGE_RPM_AT_MAX_SPEED * normalizeSpeed(motorSpeed) * BLOCKAGE_RPM_TOLERANCE;
-  //     blockageActualRPM = (pulsesDelta * 60000.0) / (elapsedTime * PULSES_COUNT);
+  //     blockageActualRPM = computeRpm(lastEncoderPulses, currentPulses, lastCheckTime, currentTime);
   //     if (blockageActualRPM < blockageExpectedRPM) {
   //       emergencyStop("Blockage detected: motorSpeed=" + String(motorSpeed)    //
   //                     + " blockageActualRPM=" + String(blockageActualRPM)      //
   //                     + " blockageExpectedRPM=" + String(blockageExpectedRPM)  //
-  //                     + " pulsesDelta=" + String(pulsesDelta)                  //
+  //                     + " lastEncoderPulses=" + String(lastEncoderPulses)      //
+  //                     + " currentPulses=" + String(currentPulses)              //
   //                     + " elapsedTime=" + String(elapsedTime));
   //     }
 
@@ -582,8 +587,8 @@ void IRAM_ATTR handleEncoderInterrupt() {  // 4us
   // Check if the target is reached
   // Note: cannot be done in main loop because the motor can overshoot the target before the loop is executed
   if (currentState == MOVING_TO_TARGET && targetPulses == getCurrentPulses()) {
-    currentState = STOPPED; 
-  } 
+    currentState = STOPPED;
+  }
 }
 
 void setup() {
@@ -606,10 +611,10 @@ void setup() {
   serialCommandHandler.registerCommand("setupCancel", doSetupCancel);
   serialCommandHandler.registerCommand<int>("setupManual", {"pulse"}, doSetupManual);
   serialCommandHandler.registerCommand("help", doGetSerialCommands);
-  #ifdef DEBUG_ENABLED
+#ifdef DEBUG_ENABLED
   serialCommandHandler.registerCommand("incEncoder", [] { encoderPulsesRaw++; return ""; });
   serialCommandHandler.registerCommand("decEncoder", [] { encoderPulsesRaw--; return ""; });
-  #endif
+#endif
 
   // Register REST API routes
   restCommandHandler.registerCommand("stop", HTTP_GET, doStop);
