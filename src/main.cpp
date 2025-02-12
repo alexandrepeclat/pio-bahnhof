@@ -38,6 +38,8 @@ int getDefaultPanel();
 int getDefaultPulseOffset();
 float normalizeSpeed(int speed);
 int denormalizeSpeed(float normalizedSpeed);
+int computePulsesDistanceForward(int from, int to);
+int computePulsesDistanceBothWays(int from, int to);
 
 #define DEBUG_ENABLED
 
@@ -56,8 +58,6 @@ const int TARGET_PULSE_OFFSET = 12;  // When setting a target panel, use the nth
 static_assert(TARGET_PULSE_OFFSET >= 0 && TARGET_PULSE_OFFSET < PULSES_PER_PANEL, "OFFSET must be in range [0-PULSES_PER_PANEL]");
 
 // Globals
-unsigned long loopMicros = 0;
-unsigned long lastLoopMicros = 0;  // Variable to store the last loop time
 ESP8266WebServer server(80);
 bool errorFlag = false;    // Emergency stop flag
 String errorMessage = "";  // Emergency stop message
@@ -69,14 +69,13 @@ RestCommandHandler restCommandHandler(server);
 // Encoder
 int defaultPulse = 0;
 int targetPulses = 0;
-volatile uint8_t encoderState = 0;
+
 volatile int encoderPulsesRaw = 0;
 const int8_t ENCODER_STATE_TABLE[16] = {0, 1, -1, -0, -1, 0, -0, 1, 1, -0, 0, -1, -0, -1, 1, 0};  // Encoder state table for natural debouncing (-0 are non valid states)
 
 // Optical sensor
 const int OPTICAL_DETECTED_EDGE = RISING;  // Capteur à 1 quand coupé / 0 quand trou / ralentit quand trou, et calibre sur rising vers coupé
 volatile bool opticalState = LOW;
-volatile bool opticalLastState = HIGH;  // Initialize to HIGH (not detected)
 
 // Servo
 Servo servo;
@@ -102,7 +101,7 @@ int getCurrentRpm() {
   unsigned long elapsedTime = currentTime - lastTime;
   if (elapsedTime == 0)
     return 0;  // Évite la division par zéro
-  int pulsesDelta = (currentPulses - lastPulses + PULSES_COUNT) % PULSES_COUNT; //TODO copié coller avec checkForRunningErrors()
+  int pulsesDelta = computePulsesDistanceForward(lastPulses, currentPulses); //TODO copié coller avec checkForRunningErrors()
   float rpm = (pulsesDelta * 60000.0) / (elapsedTime * PULSES_COUNT);
   lastPulses = currentPulses;
   lastTime = currentTime;
@@ -132,7 +131,6 @@ std::vector<DebugField> debugFields = {
     {"encIntCount", false, [] { return encoderInterruptCallCount; }},
 #endif
     {"state", true, [] { return stateToString(currentState); }},
-    {"loopDur(us)", false, [] { return loopMicros - lastLoopMicros; }},
     {"errorMessage", true, [] { return errorMessage; }},
 };
 
@@ -155,7 +153,7 @@ void emergencyStop(String message) {
   errorFlag = true;         // TODO à voir mais à priori pas redondant avec le state car les états peuvent être changés par les commandes (sinon faut que chaque commande vérifie que l'état est pas erreur avant de se lancer (ou que la fonction setState() s'en charge !))
   setCurrentState(EMERGENCY_STOPPED);
   errorMessage = message;
-  Serial.println(String(loopMicros) + " EMERGENCY STOP: " + message);
+  Serial.println("EMERGENCY STOP: " + message);
 }
 
 int IRAM_ATTR getCurrentPulses() {
@@ -247,14 +245,14 @@ String doSetupManual(int pulse) {
   return "Setup completed. Default pulse set to " + String(defaultPulse) + ". Default panel is " + String(getDefaultPanel()) + " with offset " + String(getDefaultPulseOffset());
 }
 
-String doSetupGoToZero() {
+String doSetupStart() {
   calibrated = false;  // TODO Voir si c'ets bien de réutiliser la même var
   defaultPulse = 0;    // Reset default pulse
   setCurrentState(SETUP_GO_TO_ZERO);
   return "Going to zero. Wait for the motor to stop, then call 'setupNext'.";
 }
 
-String doSetupNextPulse() {
+String doSetupNext() {
   if (currentState != SETUP_WAITING_COMMAND) {
     return "Invalid state for this command. Call 'setupStart' first.";
   }
@@ -263,7 +261,7 @@ String doSetupNextPulse() {
   return "Moving to next pulse. Call 'setupNext' if the panel did not change, or call 'setupEnd x' if it did where x is the panel number.";
 }
 
-String doSetupSetPanelNb(int panel) {
+String doSetupEndSetPanelNb(int panel) {
   if (currentState != SETUP_WAITING_COMMAND) {
     return "Invalid state for this command. Call 'setupStart' first.";  // TODO checker via la fonction des transitions autorisées (partout) et compléter la table
   }
@@ -358,9 +356,18 @@ String doReset() {
   return "Reset";
 }
 
+int computePulsesDistanceForward(int from, int to) {
+  return (to - from + PULSES_COUNT) % PULSES_COUNT;
+}
+
+int computePulsesDistanceBothWays(int from, int to) {
+  int distance = computePulsesDistanceForward(from, to);
+  return min(distance, PULSES_COUNT - distance);
+}
+
 int getRemainingPulses() {
   int currentPulses = getCurrentPulses();
-  return (targetPulses - currentPulses + PULSES_COUNT) % PULSES_COUNT;  // Calcule la distance en avance (horaire)
+  return computePulsesDistanceForward(currentPulses, targetPulses);
 }
 
 bool isTargetPulseReached() {
@@ -507,7 +514,7 @@ void checkForRunningErrors() {
 
   //   if (elapsedTime > BLOCKAGE_TIMEOUT + warmupTimeout) {
   //     int currentPulses = getCurrentPulses();
-  //     int pulsesDelta = (currentPulses - lastEncoderPulses + PULSES_COUNT) % PULSES_COUNT;
+  //     int pulsesDelta = computePulsesDistanceForward(lastEncoderPulses, currentPulses);
   //     blockageExpectedRPM = BLOCKAGE_RPM_AT_MAX_SPEED * normalizeSpeed(motorSpeed) * BLOCKAGE_RPM_TOLERANCE;
   //     blockageActualRPM = (pulsesDelta * 60000.0) / (elapsedTime * PULSES_COUNT);
   //     if (blockageActualRPM < blockageExpectedRPM) {
@@ -539,6 +546,9 @@ void checkForRunningErrors() {
 }
 
 void IRAM_ATTR handleEncoderInterrupt() {  // 4us
+
+  // Read encoder pins and update the pulses count
+  static uint8_t encoderState = 0;
   byte pinA = (GPIO_REG_READ(GPIO_IN_ADDRESS) >> ENCODER_PIN_A) & 1;
   byte pinB = (GPIO_REG_READ(GPIO_IN_ADDRESS) >> ENCODER_PIN_B) & 1;
   encoderState = ((encoderState << 2) | (pinA << 1) | pinB) & 15;  // Décale et masque les bits
@@ -549,15 +559,17 @@ void IRAM_ATTR handleEncoderInterrupt() {  // 4us
   encoderInterruptCallCount++;
 #endif
 
+  // Stop here if the encoder did not move forward
   if (pulseInc < 1)
     return;
-  int currentPulses = getCurrentPulses();
 
-  // Check if the optical sensor detected an edge
+  // Check if the optical sensor detected the edge
+  // If so, zero the encoder
+  static bool opticalLastState = HIGH;  // Initialize to HIGH (not detected)
   opticalState = (GPIO_REG_READ(GPIO_IN_ADDRESS) >> OPTICAL_SENSOR_PIN) & 1;
   if ((OPTICAL_DETECTED_EDGE == RISING && opticalLastState == LOW && opticalState == HIGH) ||
       (OPTICAL_DETECTED_EDGE == FALLING && opticalLastState == HIGH && opticalState == LOW)) {
-    assertWarn(!calibrated || abs(currentPulses - defaultPulse) <= 1, [currentPulses] { return "Missing steps ? Optical edge detected at pulse " + String(currentPulses) + " instead of " + String(defaultPulse); });  // TODO Tester d'une manière ou d'une autre
+    assertWarn(!calibrated || computePulsesDistanceBothWays(0, encoderPulsesRaw) <= 1, [] { return "Missing steps ? Optical edge detected at pulse " + String(getCurrentPulses()) + " instead of " + String(defaultPulse); });  // TODO Tester d'une manière ou d'une autre
     encoderPulsesRaw = 0;
     calibrated = true;
 
@@ -568,9 +580,10 @@ void IRAM_ATTR handleEncoderInterrupt() {  // 4us
   opticalLastState = opticalState;
 
   // Check if the target is reached
-  if (currentState == MOVING_TO_TARGET && targetPulses == currentPulses) {
-    currentState = STOPPED;  // TODO pas fan de traiter la transition d'état ici... et on le fait aussi dans la loop et attention car faut protéger la lecture de currentState contre les interruptions
-  }  // TODO j'aimerais tout faire dans la boucle, mais le temps que la boucle soit lancée, l'encodeur dépasse le target et la machine d'état voit qu'on a pas atteint la cible et repart pour un tour
+  // Note: cannot be done in main loop because the motor can overshoot the target before the loop is executed
+  if (currentState == MOVING_TO_TARGET && targetPulses == getCurrentPulses()) {
+    currentState = STOPPED; 
+  } 
 }
 
 void setup() {
@@ -587,9 +600,9 @@ void setup() {
   serialCommandHandler.registerCommand<int>("advancePanels", {"count"}, doAdvancePanels);
   serialCommandHandler.registerCommand<int>("advancePulses", {"count"}, doAdvancePulses);
   serialCommandHandler.registerCommand("panel", doGetCurrentPanel);
-  serialCommandHandler.registerCommand("setupStart", doSetupGoToZero);
-  serialCommandHandler.registerCommand("setupNext", doSetupNextPulse);
-  serialCommandHandler.registerCommand<int>("setupEnd", {"panel"}, doSetupSetPanelNb);
+  serialCommandHandler.registerCommand("setupStart", doSetupStart);
+  serialCommandHandler.registerCommand("setupNext", doSetupNext);
+  serialCommandHandler.registerCommand<int>("setupEnd", {"panel"}, doSetupEndSetPanelNb);
   serialCommandHandler.registerCommand("setupCancel", doSetupCancel);
   serialCommandHandler.registerCommand<int>("setupManual", {"pulse"}, doSetupManual);
   serialCommandHandler.registerCommand("help", doGetSerialCommands);
@@ -607,9 +620,9 @@ void setup() {
   restCommandHandler.registerCommand<int>("advancePanels", HTTP_POST, {"count"}, doAdvancePanels);
   restCommandHandler.registerCommand<int>("advancePulses", HTTP_POST, {"count"}, doAdvancePulses);
   restCommandHandler.registerCommand("panel", HTTP_GET, doGetCurrentPanel);
-  restCommandHandler.registerCommand("setupStart", HTTP_GET, doSetupGoToZero);
-  restCommandHandler.registerCommand("setupNext", HTTP_GET, doSetupNextPulse);
-  restCommandHandler.registerCommand<int>("setupEnd", HTTP_POST, {"panel"}, doSetupSetPanelNb);
+  restCommandHandler.registerCommand("setupStart", HTTP_GET, doSetupStart);
+  restCommandHandler.registerCommand("setupNext", HTTP_GET, doSetupNext);
+  restCommandHandler.registerCommand<int>("setupEnd", HTTP_POST, {"panel"}, doSetupEndSetPanelNb);
   restCommandHandler.registerCommand("setupCancel", HTTP_GET, doSetupCancel);
   restCommandHandler.registerCommand<int>("setupManual", HTTP_POST, {"pulse"}, doSetupManual);
   restCommandHandler.registerCommand("help", HTTP_GET, doGetRestRoutes);
@@ -636,7 +649,6 @@ void setup() {
 }
 
 void loop() {
-  loopMicros = micros();
   connectToWiFi();  // Keep it alive //TODO Wifi non bloquant + voir si problèmes en cas de déconnexion avec le serveur http ou autre
   readSensors();    // Read sensors and handle edge detection
   evaluateStateTransitions();
@@ -650,8 +662,6 @@ void loop() {
     Serial.println(debugBuilder.buildJson());
   }
 #endif
-  lastLoopMicros = loopMicros;  // Update last loop time
-  delay(1);
 }
 
 void setMotorSpeed(float normalizedSpeed) {
