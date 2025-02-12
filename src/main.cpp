@@ -70,7 +70,6 @@ RestCommandHandler restCommandHandler(server);
 // Encoder
 int defaultPulse = 0;
 int targetPulses = 0;
-
 volatile int encoderPulsesRaw = 0;
 const int8_t ENCODER_STATE_TABLE[16] = {0, 1, -1, -0, -1, 0, -0, 1, 1, -0, 0, -1, -0, -1, 1, 0};  // Encoder state table for natural debouncing (-0 are non valid states)
 
@@ -93,26 +92,6 @@ float blockageExpectedRPM = 0.0;
 #ifdef DEBUG_ENABLED
 volatile int encoderInterruptCallCount = 0;
 volatile int opticalDetectedEdgesCount = 0;
-
-int getCurrentRpm() {
-  static int lastPulses = 0;
-  static unsigned long lastTime = 0;
-  int currentPulses = getCurrentPulses();
-  unsigned long currentTime = millis();
-  int rpm = computeRpm(lastPulses, currentPulses, lastTime, currentTime);
-  lastPulses = currentPulses;
-  lastTime = currentTime;
-  return rpm;
-}
-
-int computeRpm(int lastPulses, int currentPulses, unsigned long lastTime, unsigned long currentTime) {
-  unsigned long elapsedTime = currentTime - lastTime;
-  if (elapsedTime == 0)
-    return 0;  // Avoid divide by 0
-  int pulsesDelta = computePulsesDistanceForward(lastPulses, currentPulses);
-  return (pulsesDelta * 60000.0) / (elapsedTime * PULSES_COUNT);
-}
-
 #endif
 
 std::vector<DebugField> debugFields = {
@@ -230,6 +209,25 @@ void saveDefaultPulse() {
 
 void loadDefaultPulse() {
   defaultPulse = EEPROM.read(0);
+}
+
+int getCurrentRpm() {
+  static int lastPulses = 0;
+  static unsigned long lastTime = 0;
+  int currentPulses = getCurrentPulses();
+  unsigned long currentTime = millis();
+  int rpm = computeRpm(lastPulses, currentPulses, lastTime, currentTime);
+  lastPulses = currentPulses;
+  lastTime = currentTime;
+  return rpm;
+}
+
+int computeRpm(int lastPulses, int currentPulses, unsigned long lastTime, unsigned long currentTime) {
+  unsigned long elapsedTime = currentTime - lastTime;
+  if (elapsedTime == 0)
+    return 0;  // Avoid divide by 0
+  int pulsesDelta = computePulsesDistanceForward(lastPulses, currentPulses);
+  return (pulsesDelta * 60000.0) / (elapsedTime * PULSES_COUNT);
 }
 
 // Functions
@@ -559,7 +557,6 @@ void IRAM_ATTR handleEncoderInterrupt() {  // 4us
   encoderState = ((encoderState << 2) | (pinA << 1) | pinB) & 15;  // Décale et masque les bits
   int8_t pulseInc = ENCODER_STATE_TABLE[encoderState] * ENCODER_DIRECTION_SIGN;
   encoderPulsesRaw += pulseInc;
-
 #ifdef DEBUG_ENABLED
   encoderInterruptCallCount++;
 #endif
@@ -577,7 +574,6 @@ void IRAM_ATTR handleEncoderInterrupt() {  // 4us
     assertWarn(!calibrated || computePulsesDistanceBothWays(0, encoderPulsesRaw) <= 1, [] { return "Missing steps ? Optical edge detected at pulse " + String(getCurrentPulses()) + " instead of " + String(defaultPulse); });  // TODO Tester d'une manière ou d'une autre
     encoderPulsesRaw = 0;
     calibrated = true;
-
 #ifdef DEBUG_ENABLED
     opticalDetectedEdgesCount++;
 #endif
