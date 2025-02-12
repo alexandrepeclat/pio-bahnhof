@@ -71,7 +71,6 @@ int defaultPulse = 0;
 int targetPulses = 0;
 volatile uint8_t encoderState = 0;
 volatile int encoderPulsesRaw = 0;
-volatile int encoderPulses = 0;
 const int8_t ENCODER_STATE_TABLE[16] = {0, 1, -1, -0, -1, 0, -0, 1, 1, -0, 0, -1, -0, -1, 1, 0};  // Encoder state table for natural debouncing (-0 are non valid states)
 
 // Optical sensor
@@ -159,8 +158,9 @@ void emergencyStop(String message) {
   Serial.println(String(loopMicros) + " EMERGENCY STOP: " + message);
 }
 
-int getCurrentPulses() {
-  return encoderPulses;
+int IRAM_ATTR getCurrentPulses() {
+  int encoderPulses = encoderPulsesRaw;
+  return (encoderPulses + defaultPulse) % PULSES_COUNT;//TODO à voir mais en principe ça sert à rien de sortir dans une var locale dans le but de rendre ça atomic
 }
 
 void setTargetPulses(int pulses) {
@@ -497,38 +497,38 @@ void connectToWiFi() {
 void checkForRunningErrors() {
   int motorSpeed = servo.read();
 
-  static unsigned long lastCheckTime = 0;
-  static int lastEncoderPulses = 0;
-  static unsigned long warmupTimeout = BLOCKAGE_TIMEOUT_WARMUP;
+  // static unsigned long lastCheckTime = 0; //TODO marche pas bien détecte faux positifs lors d'accélérations décélérations
+  // static int lastEncoderPulses = 0;
+  // static unsigned long warmupTimeout = BLOCKAGE_TIMEOUT_WARMUP;
 
-  if (motorSpeed > STOP_SPEED) {
-    unsigned long currentTime = millis();                     // Temps actuel
-    unsigned long elapsedTime = currentTime - lastCheckTime;  // Temps écoulé depuis la dernière vérification
+  // if (motorSpeed > STOP_SPEED) {
+  //   unsigned long currentTime = millis();                     // Temps actuel
+  //   unsigned long elapsedTime = currentTime - lastCheckTime;  // Temps écoulé depuis la dernière vérification
 
-    if (elapsedTime > BLOCKAGE_TIMEOUT + warmupTimeout) {
-      int currentPulses = getCurrentPulses();
-      int pulsesDelta = (currentPulses - lastEncoderPulses + PULSES_COUNT) % PULSES_COUNT;
-      blockageExpectedRPM = BLOCKAGE_RPM_AT_MAX_SPEED * normalizeSpeed(motorSpeed) * BLOCKAGE_RPM_TOLERANCE;
-      blockageActualRPM = (pulsesDelta * 60000.0) / (elapsedTime * PULSES_COUNT);
-      if (blockageActualRPM < blockageExpectedRPM) {
-        emergencyStop("Blockage detected: motorSpeed=" + String(motorSpeed)    //
-                      + " blockageActualRPM=" + String(blockageActualRPM)      //
-                      + " blockageExpectedRPM=" + String(blockageExpectedRPM)  //
-                      + " pulsesDelta=" + String(pulsesDelta)                  //
-                      + " elapsedTime=" + String(elapsedTime));
-      }
+  //   if (elapsedTime > BLOCKAGE_TIMEOUT + warmupTimeout) {
+  //     int currentPulses = getCurrentPulses();
+  //     int pulsesDelta = (currentPulses - lastEncoderPulses + PULSES_COUNT) % PULSES_COUNT;
+  //     blockageExpectedRPM = BLOCKAGE_RPM_AT_MAX_SPEED * normalizeSpeed(motorSpeed) * BLOCKAGE_RPM_TOLERANCE;
+  //     blockageActualRPM = (pulsesDelta * 60000.0) / (elapsedTime * PULSES_COUNT);
+  //     if (blockageActualRPM < blockageExpectedRPM) {
+  //       emergencyStop("Blockage detected: motorSpeed=" + String(motorSpeed)    //
+  //                     + " blockageActualRPM=" + String(blockageActualRPM)      //
+  //                     + " blockageExpectedRPM=" + String(blockageExpectedRPM)  //
+  //                     + " pulsesDelta=" + String(pulsesDelta)                  //
+  //                     + " elapsedTime=" + String(elapsedTime));
+  //     }
 
-      // Mettre à jour les valeurs de référence
-      lastCheckTime = currentTime;
-      lastEncoderPulses = currentPulses;
-      warmupTimeout = 0l;  // No warmup before next checks
-    }
-  } else {
-    // Réinitialise les valeurs quand le moteur est à l’arrêt
-    lastCheckTime = millis();
-    lastEncoderPulses = getCurrentPulses();
-    warmupTimeout = BLOCKAGE_TIMEOUT_WARMUP;  // Set warmup for next motor start before checks
-  }
+  //     // Mettre à jour les valeurs de référence
+  //     lastCheckTime = currentTime;
+  //     lastEncoderPulses = currentPulses;
+  //     warmupTimeout = 0l;  // No warmup before next checks
+  //   }
+  // } else {
+  //   // Réinitialise les valeurs quand le moteur est à l’arrêt
+  //   lastCheckTime = millis();
+  //   lastEncoderPulses = getCurrentPulses();
+  //   warmupTimeout = BLOCKAGE_TIMEOUT_WARMUP;  // Set warmup for next motor start before checks
+  // }
 
   // Detect motor speed out of bounds
   if (motorSpeed < 90) {
@@ -544,7 +544,6 @@ void IRAM_ATTR handleEncoderInterrupt() {  // 4us
   encoderState = ((encoderState << 2) | (pinA << 1) | pinB) & 15;  // Décale et masque les bits
   int8_t pulseInc = ENCODER_STATE_TABLE[encoderState] * ENCODER_DIRECTION_SIGN;
   encoderPulsesRaw += pulseInc;
-  encoderPulses = (encoderPulsesRaw + defaultPulse) % PULSES_COUNT;
 
 #ifdef DEBUG_ENABLED
   encoderInterruptCallCount++;
@@ -552,14 +551,14 @@ void IRAM_ATTR handleEncoderInterrupt() {  // 4us
 
   if (pulseInc < 1)
     return;
+  int currentPulses = getCurrentPulses();
 
   // Check if the optical sensor detected an edge
   opticalState = (GPIO_REG_READ(GPIO_IN_ADDRESS) >> OPTICAL_SENSOR_PIN) & 1;
   if ((OPTICAL_DETECTED_EDGE == RISING && opticalLastState == LOW && opticalState == HIGH) ||
       (OPTICAL_DETECTED_EDGE == FALLING && opticalLastState == HIGH && opticalState == LOW)) {
-    assertWarn(!calibrated || abs(encoderPulses - defaultPulse) <= 1, [] { return "Missing steps ? Optical edge detected at pulse " + String(encoderPulses) + " instead of " + String(PULSES_COUNT); });  // TODO Tester d'une manière ou d'une autre
+    assertWarn(!calibrated || abs(currentPulses - defaultPulse) <= 1, [currentPulses] { return "Missing steps ? Optical edge detected at pulse " + String(currentPulses) + " instead of " + String(defaultPulse); });  // TODO Tester d'une manière ou d'une autre
     encoderPulsesRaw = 0;
-    encoderPulses = (encoderPulsesRaw + defaultPulse) % PULSES_COUNT;
     calibrated = true;
 
 #ifdef DEBUG_ENABLED
@@ -569,7 +568,7 @@ void IRAM_ATTR handleEncoderInterrupt() {  // 4us
   opticalLastState = opticalState;
 
   // Check if the target is reached
-  if (currentState == MOVING_TO_TARGET && targetPulses == encoderPulses) {
+  if (currentState == MOVING_TO_TARGET && targetPulses == currentPulses) {
     currentState = STOPPED;  // TODO pas fan de traiter la transition d'état ici... et on le fait aussi dans la loop et attention car faut protéger la lecture de currentState contre les interruptions
   }  // TODO j'aimerais tout faire dans la boucle, mais le temps que la boucle soit lancée, l'encodeur dépasse le target et la machine d'état voit qu'on a pas atteint la cible et repart pour un tour
 }
@@ -594,6 +593,10 @@ void setup() {
   serialCommandHandler.registerCommand("setupCancel", doSetupCancel);
   serialCommandHandler.registerCommand<int>("setupManual", {"pulse"}, doSetupManual);
   serialCommandHandler.registerCommand("help", doGetSerialCommands);
+  #ifdef DEBUG_ENABLED
+  serialCommandHandler.registerCommand("incEncoder", [] { encoderPulsesRaw++; return ""; });
+  serialCommandHandler.registerCommand("decEncoder", [] { encoderPulsesRaw--; return ""; });
+  #endif
 
   // Register REST API routes
   restCommandHandler.registerCommand("stop", HTTP_GET, doStop);
