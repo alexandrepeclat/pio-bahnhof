@@ -160,9 +160,7 @@ void emergencyStop(String message) {
 }
 
 int getCurrentPulses() {
-  // noInterrupts(); //TODO à voir ça embete le port série de fonctionner pourtant c'est quand même séquentiel
   return encoderPulses;
-  // interrupts();
 }
 
 void setTargetPulses(int pulses) {

@@ -40,6 +40,7 @@
 
 ### Shitty issues 
 - Optical encoder 38s6g5 needs >= 5V https://forum.arduino.cc/t/fyi-interfacing-e38s6g5-600b-g24n-600p-r-rotary-encoder/1057892
+- noInterrupt() et interrupt() pas utilisés car perturbent la lecture Serial et serveur HTTP. En principe pas un problème car les variables volatiles sont <= 32 bits donc atomiques sur ESP8266.
 
 ### Hardware
 NodeMcu v3 (5-9 V)
