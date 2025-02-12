@@ -70,6 +70,7 @@ RestCommandHandler restCommandHandler(server);
 int defaultPulse = 0;
 int targetPulses = 0;
 volatile uint8_t encoderState = 0;
+volatile int encoderPulsesRaw = 0;
 volatile int encoderPulses = 0;
 const int8_t ENCODER_STATE_TABLE[16] = {0, 1, -1, -0, -1, 0, -0, 1, 1, -0, 0, -1, -0, -1, 1, 0};  // Encoder state table for natural debouncing (-0 are non valid states)
 
@@ -85,13 +86,12 @@ const int RUN_SPEED = 140;  // Vitesse du servo pour avancer (91-180) 140 c'est 
 static_assert(RUN_SPEED > 90, "RUN_SPEED must be greater than 90 or everything will break !");
 const unsigned long BLOCKAGE_TIMEOUT = 250;          // Timeout (ms) between blockage detection checks
 const unsigned long BLOCKAGE_TIMEOUT_WARMUP = 1000;  // Time to wait before starting blockage detection when motor is starting //TODO revoir ces valeurs et celui-ci pourrait être moins
-const int BLOCKAGE_RPM_AT_MAX_SPEED = 10;            // Expected RPM when servo is at max speed
+const int BLOCKAGE_RPM_AT_MAX_SPEED = 10;            // Expected RPM (panels) when servo is at max speed
 const float BLOCKAGE_RPM_TOLERANCE = 0.90;           // Tolerance for blockage detection speed
 float blockageActualRPM = 0.0;
 float blockageExpectedRPM = 0.0;
 
 #ifdef DEBUG_ENABLED
-volatile int encoderPulsesRaw = 0;
 volatile int encoderInterruptCallCount = 0;
 volatile int opticalDetectedEdgesCount = 0;
 
