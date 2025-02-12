@@ -229,27 +229,6 @@ int computeRpm(int lastPulses, int currentPulses, unsigned long lastTime, unsign
   return (pulsesDelta * 60000.0) / (elapsedTime * PULSES_COUNT);
 }
 
-boolean isCurrentStateAllowed(const AppState* allowedStates) {
-  for (unsigned int i = 0; i < sizeof(allowedStates); i++) {
-    if (currentState == allowedStates[i]) {
-      return true;
-    }
-  }
-  return false;
-}
-
-String buildAllowedStateMessage(const AppState* allowedStates) {
-  return "Invalid state " + stateToString(currentState) + " for this command. Allowed states are " + statesToString(allowedStates);
-}
-
-String statesToString(const AppState* states) {
-  String result = "";
-  for (unsigned int i = 0; i < sizeof(states); i++) {
-    result += stateToString(states[i]) + " ";
-  }
-  return result;
-}
-
 // Functions
 
 String doGetRestRoutes() {
