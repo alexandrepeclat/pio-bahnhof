@@ -1,4 +1,4 @@
-#include <ESP8266WebServer.h>
+#include <ESPAsyncWebServer.h>
 #include <functional>
 #include <map>
 #include <sstream>
@@ -6,66 +6,68 @@
 #include <type_traits> //TODO passer en revue les include inutiles
 #include <vector>
 
-//TODO utiliser AsyncWebServer ?
-
 class RestCommandHandler {
  public:
-  // Constructeur qui prend une référence à l'ESP8266WebServer
-  RestCommandHandler(ESP8266WebServer& server)
+  // Constructeur qui prend une référence à l'AsyncWebServer
+  RestCommandHandler(AsyncWebServer& server)
       : _server(server) {}
 
   // Enregistrer une commande REST sans argument
-  void registerCommand(const String& endpoint, HTTPMethod method, std::function<String()> callback) {
-    _server.on("/" + endpoint, method, [this, callback, method]() {
-      sendHeaders();
-
+  void registerCommand(const String& endpoint, WebRequestMethod method, std::function<String()> callback) {
+    _server.on(("/" + endpoint).c_str(), method, [this, callback](AsyncWebServerRequest *request) {
       // Appel du callback
       String response = callback();
-      _server.send(200, "text/plain", response);
+      request->send(200, "text/plain", response);
     });
     _routes.push_back({endpoint, method, {}});
   }
 
   // Enregistrer une commande REST avec 1 argument
   template <typename Arg1>
-  void registerCommand(const String& endpoint, HTTPMethod method, const std::vector<String>& paramNames, std::function<String(Arg1)> callback) {
+  void registerCommand(const String& endpoint, WebRequestMethod method, const std::vector<String>& paramNames, std::function<String(Arg1)> callback) {
     assert(paramNames.size() == 1);
 
-    _server.on("/" + endpoint, method, [this, callback, paramNames]() {
-      sendHeaders();
-
+    _server.on(("/" + endpoint).c_str(), method, [this, callback, paramNames, method](AsyncWebServerRequest *request) {
       // Vérification des arguments
-      String param = _server.arg(paramNames[0]);
+      bool isPost = (method == HTTP_POST);
+      if (!request->hasParam(paramNames[0], isPost)) {
+        request->send(400, "text/plain", "Bad Request: missing argument");
+        return;
+      }
+      String param = request->getParam(paramNames[0], isPost)->value();
       if (param.length() == 0) {
-        _server.send(400, "text/plain", "Bad Request: missing argument");
+        request->send(400, "text/plain", "Bad Request: missing argument");
         return;
       }
 
       // Conversion et appel du callback
       Arg1 arg1;
       if (!convertArgument<Arg1>(param, arg1)) {
-        _server.send(400, "text/plain", "Erreur de conversion pour l'argument " + paramNames[0] + " : " + param);
+        request->send(400, "text/plain", "Erreur de conversion pour l'argument " + paramNames[0] + " : " + param);
         return;
       }
       String response = callback(arg1);
-        _server.send(200, "text/plain", response);
+      request->send(200, "text/plain", response);
     });
     _routes.push_back({endpoint, method, paramNames});
   }
 
   // Enregistrer une commande REST avec 2 arguments
   template <typename Arg1, typename Arg2>
-  void registerCommand(const String& endpoint, HTTPMethod method, const std::vector<String>& paramNames, std::function<String(Arg1, Arg2)> callback) {
+  void registerCommand(const String& endpoint, WebRequestMethod method, const std::vector<String>& paramNames, std::function<String(Arg1, Arg2)> callback) {
     assert(paramNames.size() == 2);
 
-    _server.on("/" + endpoint, method, [this, callback, paramNames]() {
-      sendHeaders();
-
+    _server.on(("/" + endpoint).c_str(), method, [this, callback, paramNames, method](AsyncWebServerRequest *request) {
       // Vérification des arguments
-      String param1 = _server.arg(paramNames[0]);
-      String param2 = _server.arg(paramNames[1]);
+      bool isPost = (method == HTTP_POST);
+      if (!request->hasParam(paramNames[0], isPost) || !request->hasParam(paramNames[1], isPost)) {
+        request->send(400, "text/plain", "Bad Request: missing argument");
+        return;
+      }
+      String param1 = request->getParam(paramNames[0], isPost)->value();
+      String param2 = request->getParam(paramNames[1], isPost)->value();
       if (param1.length() == 0 || param2.length() == 0) {
-        _server.send(400, "text/plain", "Bad Request: missing argument");
+        request->send(400, "text/plain", "Bad Request: missing argument");
         return;
       }
 
@@ -73,33 +75,36 @@ class RestCommandHandler {
       Arg1 arg1;
       Arg2 arg2;
       if (!convertArgument<Arg1>(param1, arg1)) {
-        _server.send(400, "text/plain", "Erreur de conversion pour l'argument " + paramNames[0] + " : " + param1);
+        request->send(400, "text/plain", "Erreur de conversion pour l'argument " + paramNames[0] + " : " + param1);
         return;
       }
       if (!convertArgument<Arg2>(param2, arg2)) {
-        _server.send(400, "text/plain", "Erreur de conversion pour l'argument " + paramNames[1] + " : " + param2);
+        request->send(400, "text/plain", "Erreur de conversion pour l'argument " + paramNames[1] + " : " + param2);
         return;
       }
       String response = callback(arg1, arg2);
-        _server.send(200, "text/plain", response);
+      request->send(200, "text/plain", response);
     });
     _routes.push_back({endpoint, method, paramNames});
   }
 
   // Enregistrer une commande REST avec 3 arguments
   template <typename Arg1, typename Arg2, typename Arg3>
-  void registerCommand(const String& endpoint, HTTPMethod method, const std::vector<String>& paramNames, std::function<String(Arg1, Arg2, Arg3)> callback) {
+  void registerCommand(const String& endpoint, WebRequestMethod method, const std::vector<String>& paramNames, std::function<String(Arg1, Arg2, Arg3)> callback) {
     assert(paramNames.size() == 3);
 
-    _server.on("/" + endpoint, method, [this, callback, paramNames]() {
-      sendHeaders();
-
+    _server.on(("/" + endpoint).c_str(), method, [this, callback, paramNames, method](AsyncWebServerRequest *request) {
       // Vérification des arguments
-      String param1 = _server.arg(paramNames[0]);
-      String param2 = _server.arg(paramNames[1]);
-      String param3 = _server.arg(paramNames[2]);
+      bool isPost = (method == HTTP_POST);
+      if (!request->hasParam(paramNames[0], isPost) || !request->hasParam(paramNames[1], isPost) || !request->hasParam(paramNames[2], isPost)) {
+        request->send(400, "text/plain", "Bad Request: missing argument");
+        return;
+      }
+      String param1 = request->getParam(paramNames[0], isPost)->value();
+      String param2 = request->getParam(paramNames[1], isPost)->value();
+      String param3 = request->getParam(paramNames[2], isPost)->value();
       if (param1.length() == 0 || param2.length() == 0 || param3.length() == 0) {
-        _server.send(400, "text/plain", "Bad Request: missing argument");
+        request->send(400, "text/plain", "Bad Request: missing argument");
         return;
       }
 
@@ -108,25 +113,25 @@ class RestCommandHandler {
       Arg2 arg2;
       Arg3 arg3;
       if (!convertArgument<Arg1>(param1, arg1)) {
-        _server.send(400, "text/plain", "Erreur de conversion pour l'argument " + paramNames[0] + " : " + param1);
+        request->send(400, "text/plain", "Erreur de conversion pour l'argument " + paramNames[0] + " : " + param1);
         return;
       }
       if (!convertArgument<Arg2>(param2, arg2)) {
-        _server.send(400, "text/plain", "Erreur de conversion pour l'argument " + paramNames[1] + " : " + param2);
+        request->send(400, "text/plain", "Erreur de conversion pour l'argument " + paramNames[1] + " : " + param2);
         return;
       }
       if (!convertArgument<Arg3>(param3, arg3)) {
-        _server.send(400, "text/plain", "Erreur de conversion pour l'argument " + paramNames[2] + " : " + param3);
+        request->send(400, "text/plain", "Erreur de conversion pour l'argument " + paramNames[2] + " : " + param3);
         return;
       }
       String response = callback(arg1, arg2, arg3);
-        _server.send(200, "text/plain", response);
+      request->send(200, "text/plain", response);
     });
     _routes.push_back({endpoint, method, paramNames});
   }
 
   void handleClient() {
-    _server.handleClient();  // Handle incoming HTTP requests
+    // No need to handle client in AsyncWebServer
   }
 
   // Retrieve the list of API routes with method and parameters
@@ -154,19 +159,15 @@ class RestCommandHandler {
   }
 
  private:
-  ESP8266WebServer& _server;  // Référence au serveur pour l'enregistrement des routes
+  AsyncWebServer& _server;  // Référence au serveur pour l'enregistrement des routes
 
   struct Route {
     String endpoint;
-    HTTPMethod method;
+    WebRequestMethod method;
     std::vector<String> params;
   };
 
   std::vector<Route> _routes;  // List of registered routes
-
-  void sendHeaders() {
-    _server.sendHeader("Access-Control-Allow-Origin", "*");
-  }
 
   // Conversion des arguments en fonction de leur type
   template <typename T>
@@ -194,8 +195,8 @@ class RestCommandHandler {
     return true;  // Conversion réussie
   }
 
-  // Convert HTTPMethod to String
-  String methodToString(HTTPMethod method) {
+  // Convert WebRequestMethod to String
+  String methodToString(WebRequestMethod method) {
     switch (method) {
       case HTTP_GET:
         return "GET";

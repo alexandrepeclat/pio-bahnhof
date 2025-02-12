@@ -1,6 +1,6 @@
 #include <DebugBuilder.h>
 #include <EEPROM.h>
-#include <ESP8266WebServer.h>
+#include <ESPAsyncWebServer.h>
 #include <ESP8266WiFi.h>
 #include <RestCommandHandler.h>
 #include <SerialCommandHandler.h>
@@ -60,7 +60,9 @@ const int TARGET_PULSE_OFFSET = 12;  // When setting a target panel, use the nth
 static_assert(TARGET_PULSE_OFFSET >= 0 && TARGET_PULSE_OFFSET < PULSES_PER_PANEL, "OFFSET must be in range [0-PULSES_PER_PANEL]");
 
 // Globals
-ESP8266WebServer server(80);
+AsyncWebServer server(80);
+AsyncCorsMiddleware cors;
+
 bool errorFlag = false;    // Emergency stop flag
 String errorMessage = "";  // Emergency stop message
 volatile AppState currentState = STOPPED;
@@ -568,7 +570,7 @@ void setup() {
   assert(!WiFi.getPersistent());
   Serial.begin(115200);
   Serial.setTimeout(10);
-
+  
   // Register Serial commands
   serialCommandHandler.registerCommand("stop", doStop);
   serialCommandHandler.registerCommand("reset", doReset);
@@ -584,11 +586,11 @@ void setup() {
   serialCommandHandler.registerCommand("setupCancel", doSetupCancel);
   serialCommandHandler.registerCommand<int>("setupManual", {"pulse"}, doSetupManual);
   serialCommandHandler.registerCommand("help", doGetSerialCommands);
-#ifdef DEBUG_ENABLED
+  #ifdef DEBUG_ENABLED
   serialCommandHandler.registerCommand("incEncoder", [] { encoderPulsesRaw++; return ""; });
   serialCommandHandler.registerCommand("decEncoder", [] { encoderPulsesRaw--; return ""; });
-#endif
-
+  #endif
+  
   // Register REST API routes
   restCommandHandler.registerCommand("stop", HTTP_GET, doStop);
   restCommandHandler.registerCommand("reset", HTTP_GET, doReset);
@@ -604,14 +606,16 @@ void setup() {
   restCommandHandler.registerCommand("setupCancel", HTTP_GET, doSetupCancel);
   restCommandHandler.registerCommand<int>("setupManual", HTTP_POST, {"pulse"}, doSetupManual);
   restCommandHandler.registerCommand("help", HTTP_GET, doGetRestRoutes);
-
+  
+  cors.setOrigin("*");
+  server.addMiddleware(&cors);
   server.begin();
   Serial.println("HTTP server started");
-
+  
   // Read setup values from EEPROM
   EEPROM.begin(256);
   loadDefaultPulse();
-
+  
   // Servo setup
   servo.attach(SERVO_PIN);
   servo.write(STOP_SPEED);  // Ensure the servo starts stopped using the centralized function
