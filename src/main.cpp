@@ -39,8 +39,8 @@ int getDefaultPulseOffset();
 int getCurrentRpm();
 float normalizeSpeed(int speed);
 int denormalizeSpeed(float normalizedSpeed);
-int computePulsesDistanceForward(int from, int to);
-int computePulsesDistanceBothWays(int from, int to);
+int computePulsesForwardDistance(int from, int to);
+int computePulsesMinDistance(int from, int to);
 int computeRpm(int lastPulses, int currentPulses, unsigned long lastTime, unsigned long currentTime);
 
 #define DEBUG_ENABLED
@@ -135,15 +135,13 @@ void assertWarn(bool condition, const std::function<String()>& messageBuilder) {
 
 void emergencyStop(String message) {
   servo.write(STOP_SPEED);  // First things first, stop the motor
-  errorFlag = true;         // TODO à voir mais à priori pas redondant avec le state car les états peuvent être changés par les commandes (sinon faut que chaque commande vérifie que l'état est pas erreur avant de se lancer (ou que la fonction setState() s'en charge !))
+  errorFlag = true;         // Error flag will prevent the motor to run, until manually reset
   setCurrentState(EMERGENCY_STOPPED);
   errorMessage = message;
-  Serial.println("EMERGENCY STOP: " + message);
 }
 
 int IRAM_ATTR getCurrentPulses() {
-  int encoderPulses = encoderPulsesRaw;
-  return (encoderPulses + defaultPulse) % PULSES_COUNT;  // TODO à voir mais en principe ça sert à rien de sortir dans une var locale dans le but de rendre ça atomic
+  return (encoderPulsesRaw + defaultPulse) % PULSES_COUNT;
 }
 
 void setTargetPulses(int pulses) {
@@ -227,8 +225,29 @@ int computeRpm(int lastPulses, int currentPulses, unsigned long lastTime, unsign
   unsigned long elapsedTime = currentTime - lastTime;
   if (elapsedTime == 0)
     return 0;  // Avoid divide by 0
-  int pulsesDelta = computePulsesDistanceForward(lastPulses, currentPulses);
+  int pulsesDelta = computePulsesForwardDistance(lastPulses, currentPulses);
   return (pulsesDelta * 60000.0) / (elapsedTime * PULSES_COUNT);
+}
+
+boolean isCurrentStateAllowed(const AppState* allowedStates) {
+  for (unsigned int i = 0; i < sizeof(allowedStates); i++) {
+    if (currentState == allowedStates[i]) {
+      return true;
+    }
+  }
+  return false;
+}
+
+String buildAllowedStateMessage(const AppState* allowedStates) {
+  return "Invalid state " + stateToString(currentState) + " for this command. Allowed states are " + statesToString(allowedStates);
+}
+
+String statesToString(const AppState* states) {
+  String result = "";
+  for (unsigned int i = 0; i < sizeof(states); i++) {
+    result += stateToString(states[i]) + " ";
+  }
+  return result;
 }
 
 // Functions
@@ -243,44 +262,42 @@ String doGetSerialCommands() {
 
 String doSetupManual(int pulse) {
   defaultPulse = pulse;
-  calibrated = false;
   assertError(defaultPulse >= 0 && defaultPulse < PULSES_COUNT, [] { return "defaultPulse " + String(defaultPulse) + " out of bounds [0-" + String(PULSES_COUNT) + "]"; });
   saveDefaultPulse();
   return "Setup completed. Default pulse set to " + String(defaultPulse) + ". Default panel is " + String(getDefaultPanel()) + " with offset " + String(getDefaultPulseOffset());
 }
 
 String doSetupStart() {
-  calibrated = false;  // TODO Voir si c'ets bien de réutiliser la même var
-  defaultPulse = 0;    // Reset default pulse
+  calibrated = false;  // Flag is used by state machine for going to next state
+  defaultPulse = 0;
   setCurrentState(SETUP_GO_TO_ZERO);
   return "Going to zero. Wait for the motor to stop, then call 'setupNext'.";
 }
 
 String doSetupNext() {
   if (currentState != SETUP_WAITING_COMMAND) {
-    return "Invalid state for this command. Call 'setupStart' first.";
+    return "Error. Call 'setupStart' first and wait for the motor to stop.";
   }
   setCurrentState(SETUP_MOVE_PULSE);
   targetPulses = (getCurrentPulses() + 1) % PULSES_COUNT;
-  return "Moving to next pulse. Call 'setupNext' if the panel did not change, or call 'setupEnd x' if it did where x is the panel number.";
+  return "Moving to next pulse. Call 'setupNext' if the panel did not change. Call 'setupEnd x' if the panel changed.";
 }
 
 String doSetupEndSetPanelNb(int panel) {
   if (currentState != SETUP_WAITING_COMMAND) {
-    return "Invalid state for this command. Call 'setupStart' first.";  // TODO checker via la fonction des transitions autorisées (partout) et compléter la table
+    return "Error. Call 'setupStart' first and wait for the motor to stop.";
   }
-
   setCurrentState(STOPPED);
   defaultPulse = (panel * PULSES_PER_PANEL) - getCurrentPulses();
   assertError(defaultPulse >= 0 && defaultPulse < PULSES_COUNT, [] { return "defaultPulse " + String(defaultPulse) + " out of bounds [0-" + String(PULSES_COUNT) + "]"; });
   saveDefaultPulse();
-  return "Setup completed. Default pulse set to " + String(defaultPulse) + ". Default panel is " + String(getDefaultPanel()) + " with offset " + String(getDefaultPulseOffset());
+  return "Setup completed. Default pulse saved as " + String(defaultPulse) + ". Default panel is " + String(getDefaultPanel()) + " with offset " + String(getDefaultPulseOffset());
 }
 
 String doSetupCancel() {
   setCurrentState(STOPPED);
   loadDefaultPulse();
-  return "Setup canceled. Default pulse retored to " + String(defaultPulse);
+  return "Setup canceled. Default pulse retored to " + String(defaultPulse) + ". Default panel is " + String(getDefaultPanel()) + " with offset " + String(getDefaultPulseOffset());
 }
 
 String doGetDebug() {
@@ -291,29 +308,7 @@ String doGetCurrentPanel() {
   return String(getCurrentPanel());
 }
 
-boolean isCurrentState(const AppState* allowedStates) {
-  for (unsigned int i = 0; i < sizeof(allowedStates); i++) {
-    if (currentState == allowedStates[i]) {
-      return true;
-    }
-  }
-  return false;
-}
-
-String statesToString(const AppState* states) {
-  String result = "";
-  for (unsigned int i = 0; i < sizeof(states); i++) {
-    result += stateToString(states[i]) + " ";
-  }
-  return result;
-}
-
 String doMoveToPanel(int panel) {
-  const AppState allowedStates[] = {STOPPED, MOVING_TO_TARGET, AUTO_CALIBRATING};  // TODO utiliser ça partout ?
-  if (!isCurrentState(allowedStates)) {
-    return "Invalid state " + stateToString(currentState) + " for this command. Allowed states are " + statesToString(allowedStates);
-  }
-
   if (panel > PANELS_COUNT) {
     return "Panel " + String(panel) + " out of bounds [0-" + String(PANELS_COUNT) + "]";
   }
@@ -337,41 +332,41 @@ String doAdvancePulses(int pulseCount) {
 }
 
 String doCalibrate() {
-  setCurrentState(CALIBRATING);  // Set motor mode for calibration
   calibrated = false;
-  setTargetPanel(0);
+  setTargetPanel(0);  // After on-demand calibration, will go to panel 0
+  setCurrentState(CALIBRATING);
   return "Calibration started. Rotating until optical sensor edge is detected, then going to panel 0";
 }
 
 String doStop() {
-  setMotorSpeed(0);          // Use the centralized function to stop the motor
-  setCurrentState(STOPPED);  // Set motor mode to stopped
-  setTargetPulses(getCurrentPulses());
+  setMotorSpeed(0);
+  setCurrentState(STOPPED);
+  setTargetPulses(getCurrentPulses());  // Consider target as reached
   return "Stopped. Current panel set to " + String(getCurrentPanel());
 }
 
 String doReset() {
-  setMotorSpeed(0);  // Stop the motor
-  calibrated = false;
+  setMotorSpeed(0);  // Set everything as stopped
+  setCurrentState(STOPPED);
+  calibrated = false;  // Reset all flags
   errorFlag = false;
   errorMessage = "";
-  loadDefaultPulse();
-  setCurrentState(STOPPED);
+  loadDefaultPulse();  // Load config from EEPROM
   return "Reset";
 }
 
-int computePulsesDistanceForward(int from, int to) {
+int IRAM_ATTR computePulsesForwardDistance(int from, int to) {
   return (to - from + PULSES_COUNT) % PULSES_COUNT;
 }
 
-int computePulsesDistanceBothWays(int from, int to) {
-  int distance = computePulsesDistanceForward(from, to);
+int IRAM_ATTR computePulsesMinDistance(int from, int to) {
+  int distance = computePulsesForwardDistance(from, to);
   return min(distance, PULSES_COUNT - distance);
 }
 
 int getRemainingPulses() {
   int currentPulses = getCurrentPulses();
-  return computePulsesDistanceForward(currentPulses, targetPulses);
+  return computePulsesForwardDistance(currentPulses, targetPulses);
 }
 
 bool isTargetPulseReached() {
@@ -393,9 +388,9 @@ float calculateSpeedCalibration() {
 float calculateSpeedMovingToTarget() {
   int remainingPulses = getRemainingPulses();
   if (remainingPulses == 0) {
-    return 0.f;
+    return 0.f;  // Stop if target is reached (should be already stopped by encoder interrupt)
   } else if (remainingPulses <= PULSES_PER_PANEL) {
-    return 0.3f;
+    return 0.3f;  // Slow down as we approach target
   } else if (remainingPulses <= PULSES_PER_PANEL * 2) {
     return 0.5f;
   } else if (remainingPulses <= PULSES_PER_PANEL * 3) {
@@ -567,12 +562,14 @@ void IRAM_ATTR handleEncoderInterrupt() {  // 4us
     return;
 
   // Check if the optical sensor detected the edge
-  // If so, zero the encoder
+  // If so, zero the encoder + consider calibration as done
   static bool opticalLastState = HIGH;  // Initialize to HIGH (not detected)
   opticalState = (GPIO_REG_READ(GPIO_IN_ADDRESS) >> OPTICAL_SENSOR_PIN) & 1;
   if ((OPTICAL_DETECTED_EDGE == RISING && opticalLastState == LOW && opticalState == HIGH) ||
       (OPTICAL_DETECTED_EDGE == FALLING && opticalLastState == HIGH && opticalState == LOW)) {
-    assertWarn(!calibrated || computePulsesDistanceBothWays(0, encoderPulsesRaw) <= 1, [] { return "Missing steps ? Optical edge detected at pulse " + String(getCurrentPulses()) + " instead of " + String(defaultPulse); });  // TODO Tester d'une manière ou d'une autre
+    assertWarn(!calibrated || computePulsesMinDistance(0, encoderPulsesRaw) <= 1, [] {
+      return "Missing steps... Optical edge detected at pulse " + String(getCurrentPulses()) + " instead of " + String(defaultPulse);
+    });
     encoderPulsesRaw = 0;
     calibrated = true;
 #ifdef DEBUG_ENABLED
