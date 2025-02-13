@@ -46,10 +46,10 @@ int computeRpm(int lastPulses, int currentPulses, unsigned long lastTime, unsign
 #define DEBUG_ENABLED
 
 // Pins configuration
-#define SERVO_PIN D3
-#define ENCODER_PIN_A D1       // CLK
-#define ENCODER_PIN_B D2       // DT
-#define OPTICAL_SENSOR_PIN D6  // Pin pour le capteur optique
+#define SERVO_PIN D1
+#define ENCODER_PIN_A D6       // GREEN
+#define ENCODER_PIN_B D7       // WHITE
+#define OPTICAL_SENSOR_PIN D4  // Pin pour le capteur optique
 
 // Constants
 const int PANELS_COUNT = 62;
@@ -621,7 +621,7 @@ void setup() {
   servo.write(STOP_SPEED);  // Ensure the servo starts stopped using the centralized function
 
   // Optical sensor setup
-  pinMode(OPTICAL_SENSOR_PIN, INPUT_PULLDOWN_16);  // Configure le capteur optique en entrée
+  pinMode(OPTICAL_SENSOR_PIN, INPUT_PULLDOWN_16);  // Configure le capteur optique en entrée //TODO pourquoi pulldown au fait ? 
 
   // Encoder setup
   pinMode(ENCODER_PIN_A, INPUT_PULLUP);
