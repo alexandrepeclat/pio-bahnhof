@@ -5,6 +5,17 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CFF Flip</title>
+    <style type="text/css">
+
+        #citySelect {
+            background-color:darkblue;
+            color:white;
+            border: 2px solid black;
+            font-size: 2rem;
+            font-family: sans-serif;
+        }
+
+    </style>
     <script>
         const cities = [
             { name: 'Sektor A', keywords: ['sector a', 'zone a'] },
@@ -139,6 +150,26 @@
             } else {
                 document.getElementById('responseMessage').textContent = 'Speech recognition not supported in this browser.';
             }
+
+            const ws = new WebSocket(WS_BASE_URL);
+            ws.onmessage = (event) => {
+                const panelNumber = event.data;
+                document.getElementById('currentPanelDisplay').textContent = `Current Panel: ${panelNumber}`;
+                updateCitySelect(panelNumber);
+                document.getElementById('citySelect').value = panelNumber;
+            };
+
+            ws.onopen = () => {
+                console.log('WebSocket connection established');
+            };
+
+            ws.onclose = () => {
+                console.log('WebSocket connection closed');
+            };
+
+            ws.onerror = (error) => {
+                console.error('WebSocket error', error);
+            };
         });
     </script>
 </head>
@@ -185,10 +216,12 @@
 
         <pre id="responseMessage" style="white-space:wrap;word-break:break-word;">
         </pre>
+        <div id="currentPanelDisplay">Current Panel: </div>
     </div>
 
     <script>
-        const API_BASE_URL = 'http://192.168.0.222';
+        const WS_BASE_URL = 'ws://192.168.0.222/ws'
+        const REST_BASE_URL = 'http://192.168.0.222';
 
         // Populate the select element with city options
         const citySelect = document.getElementById('citySelect');
@@ -200,7 +233,7 @@
         });
 
         async function apiRequest(endpoint, method = 'GET', params = {}) {
-            let url = `${API_BASE_URL}${endpoint}`;
+            let url = `${REST_BASE_URL}${endpoint}`;
 
             if (method === 'GET' && Object.keys(params).length) {
                 url += '?' + new URLSearchParams(params);

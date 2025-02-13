@@ -62,6 +62,7 @@ static_assert(TARGET_PULSE_OFFSET >= 0 && TARGET_PULSE_OFFSET < PULSES_PER_PANEL
 // Globals
 AsyncWebServer server(80);
 AsyncCorsMiddleware cors;
+AsyncWebSocket ws("/ws");
 
 bool errorFlag = false;    // Emergency stop flag
 String errorMessage = "";  // Emergency stop message
@@ -78,7 +79,7 @@ const int8_t ENCODER_STATE_TABLE[16] = {0, 1, -1, -0, -1, 0, -0, 1, 1, -0, 0, -1
 
 // Optical sensor
 const int OPTICAL_DETECTED_EDGE = RISING;  // Capteur à 1 quand coupé / 0 quand trou / ralentit quand trou, et calibre sur rising vers coupé
-volatile bool opticalState = HIGH; //Assume not on slot
+volatile bool opticalState = HIGH;         // Assume not on slot
 
 // Servo
 Servo servo;
@@ -566,6 +567,15 @@ void IRAM_ATTR handleEncoderInterrupt() {  // 4us
   }
 }
 
+void notifyPanelChanges() {
+  static int lastPanel = -1;
+  int currentPanel = getCurrentPanel();
+  if (currentPanel != lastPanel) {
+    ws.textAll(String(currentPanel));
+    lastPanel = currentPanel;
+  }
+}
+
 void setup() {
   assert(!WiFi.getPersistent());
   Serial.begin(115200);
@@ -609,8 +619,20 @@ void setup() {
 
   cors.setOrigin("*");
   server.addMiddleware(&cors);
+  server.addHandler(&ws);
   server.begin();
   Serial.println("HTTP server started");
+
+// WebSocket setup
+#ifdef DEBUG_ENABLED
+  ws.onEvent([](AsyncWebSocket* server, AsyncWebSocketClient* client, AwsEventType type, void* arg, uint8_t* data, size_t len) {
+    if (type == WS_EVT_CONNECT) {
+      Serial.println("WebSocket client connected");
+    } else if (type == WS_EVT_DISCONNECT) {
+      Serial.println("WebSocket client disconnected");
+    }
+  });
+#endif
 
   // Read setup values from EEPROM
   EEPROM.begin(256);
@@ -638,6 +660,7 @@ void loop() {
   checkForRunningErrors();  // Check for blockages and co
   serialCommandHandler.handleSerial();
   restCommandHandler.handleClient();
+  notifyPanelChanges();
 
 #ifdef DEBUG_ENABLED
   if (debugBuilder.hasChanged()) {  // 110 us
