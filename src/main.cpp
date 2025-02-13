@@ -62,7 +62,7 @@ static_assert(TARGET_PULSE_OFFSET >= 0 && TARGET_PULSE_OFFSET < PULSES_PER_PANEL
 // Globals
 AsyncWebServer server(80);
 AsyncCorsMiddleware cors;
-AsyncWebSocket ws("/ws");
+AsyncWebSocket ws("/panel");
 
 bool errorFlag = false;    // Emergency stop flag
 String errorMessage = "";  // Emergency stop message
@@ -579,7 +579,7 @@ void notifyPanelChanges() {
 void setup() {
   assert(!WiFi.getPersistent());
   Serial.begin(115200);
-  Serial.setTimeout(10);
+  Serial.setTimeout(10); //TODO ça sert encore ça ?
 
   // Register Serial commands
   serialCommandHandler.registerCommand("stop", doStop);
