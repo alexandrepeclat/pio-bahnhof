@@ -7,6 +7,7 @@
 - Espacer les roues imprimées de 0.1-2mm (ou les diminuer de taille) pour avoir une tolérance ?
 - Support de carte + couvercle
 - Alim externe + fiche
+- Support carte max 92*73mm
 
  ### TODO SOFTWARE :
  TODO ça semble se mettre en veille au bout d'un moment...... mais ça semble réglé
