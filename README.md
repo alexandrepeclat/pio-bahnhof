@@ -44,6 +44,8 @@
 - noInterrupt() et interrupt() pas utilisés car perturbent la lecture Serial et serveur HTTP. En principe on en a pas besoin car les variables volatiles sont <= 32 bits donc atomiques sur ESP8266.
 
 ### Hardware
+lm2596 IN 7-30V
+lm2596 OUT 5.2V
 NodeMcu v3 (5-9 V)
 38s6g5 Optical Encoder (5 - 24 V)
 MG996R Servo Motor with continuous rotation (4.8 - 6.6 V)
