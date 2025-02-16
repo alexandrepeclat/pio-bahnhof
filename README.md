@@ -19,6 +19,9 @@
  TODO API pour donner la liste des villes ? Dépend du matos après-tout par contre on va pas fournir les traductions pour la reconnaissance vocale ?
  TODO sécuriser API ?
 
+### Flasher
+- Flasher le programme : `pio run --target upload`
+- Flasher le filesystem : `pio run --target uploadfs`
 
  ### Procédure de calibration
 - setupStart

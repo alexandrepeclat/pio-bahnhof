@@ -1,7 +1,9 @@
 #include <DebugBuilder.h>
 #include <EEPROM.h>
 #include <ESP8266WiFi.h>
+#include <ESP8266mDNS.h>
 #include <ESPAsyncWebServer.h>
+#include <LittleFS.h>
 #include <RestCommandHandler.h>
 #include <SerialCommandHandler.h>
 #include <Servo.h>
@@ -56,7 +58,7 @@ const int PANELS_COUNT = 62;
 const int PULSES_PER_PANEL = 24;                           // ENCODER_RESOLUTION / ENCODER_GEAR_TEETH * ENCODER_PULSES_PER_STEP = 360 / 60 * 4 = 24
 const int PULSES_COUNT = PANELS_COUNT * PULSES_PER_PANEL;  // Nombre total d'impulsions
 const int ENCODER_DIRECTION_SIGN = 1;
-const int TARGET_PULSE_OFFSET = 12;  // When setting a target panel, use the nth pulse of this panel for centering //TODO faudrait pouvoir setter ça aussi facilement car ça dépend pas mal de la vitesse de rotation. On peut revoir aussi pour la calibration via l'usage des websockets l'utilisateur pourrait simplement setter +- en fonction du changement de panel en temps réel
+const int TARGET_PULSE_OFFSET = 12;  // When setting a target panel, use the nth pulse of this panel for centering
 static_assert(TARGET_PULSE_OFFSET >= 0 && TARGET_PULSE_OFFSET < PULSES_PER_PANEL, "OFFSET must be in range [0-PULSES_PER_PANEL]");
 
 // Globals
@@ -482,10 +484,6 @@ void connectToWiFi() {
   }
 }
 
-String getWifiInfo() {
-  return "SSID:" + WiFi.SSID() + " RSSI:" + WiFi.RSSI() + " IP:" + WiFi.localIP().toString();
-}
-
 void checkForRunningErrors() {
   int motorSpeed = servo.read();
 
@@ -567,7 +565,7 @@ void IRAM_ATTR handleEncoderInterrupt() {  // 4us
   // Check if the target is reached
   // Note: cannot be done in main loop because the motor can overshoot the target before the loop is executed
   if (currentState == MOVING_TO_TARGET && targetPulses == getCurrentPulses()) {
-    currentState = STOPPED; //TODO à voir car de toute manière il faut attendre la loop pour stopper le moteur. On ne peut pas le faire ici car ça prend 20ms et du coup ça va louper des interruptions (à tester quand même)
+    currentState = STOPPED;
   }
 }
 
@@ -601,7 +599,6 @@ void setup() {
   serialCommandHandler.registerCommand<int>("setupManual", {"pulse"}, doSetupManual);
   serialCommandHandler.registerCommand("help", doGetSerialCommands);
 #ifdef DEBUG_ENABLED
-  serialCommandHandler.registerCommand("wifi", getWifiInfo);
   serialCommandHandler.registerCommand("incEncoder", [] { encoderPulsesRaw++; return ""; });
   serialCommandHandler.registerCommand("decEncoder", [] { encoderPulsesRaw--; return ""; });
 #endif
@@ -627,6 +624,21 @@ void setup() {
   server.addHandler(&ws);
   server.begin();
   Serial.println("HTTP server started");
+
+  if (!LittleFS.begin()) {
+    Serial.println("Erreur lors du montage de LittleFS !");
+    return;
+  }
+
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest* request) {
+    request->send(LittleFS, "/index.html", "text/html");
+  });
+
+  if (MDNS.begin("cff")) {  // TODO faire fonctionner
+    Serial.println("mDNS démarré avec succès !");
+  } else {
+    Serial.println("Erreur lors de l'initialisation de mDNS");
+  }
 
 // WebSocket setup
 #ifdef DEBUG_ENABLED
