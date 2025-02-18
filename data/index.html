@@ -156,7 +156,6 @@
                 const panelNumber = event.data;
                 document.getElementById('currentPanelDisplay').textContent = `Current Panel: ${panelNumber}`;
                 updateCitySelect(panelNumber);
-                document.getElementById('citySelect').value = panelNumber;
             };
 
             ws.onopen = () => {
@@ -204,14 +203,10 @@
         <input type="number" id="advancePulsesInput" placeholder="Enter Pulse Count" value="10">
         <button onclick="advancePulses()">Advance Pulses</button>
 
-        <h2>Setup</h2>
-        <button onclick="setupStart()">setupStart</button>
-        <button onclick="setupNext()">setupNext</button>
-        <input type="number" id="setupEndInput" placeholder="Enter Panel Number" value="13">
-        <button onclick="setupEnd()">setupEnd</button>
-        <button onclick="setupCancel()">setupCancel</button>
-        <input type="number" id="setupManualInput" placeholder="Enter Pulse Offset" value="289">
-        <button onclick="setupManual()">setupManual</button>
+        <h2>Settings</h2>
+        <input type="number" id="inDefaultPulse" placeholder="Enter Pulse Offset" value="289" onchange="setDefaultPulse()">
+        <button onclick="saveSettings()">saveSettings</button>
+        <button onclick="loadSettings()">loadSettings</button>
         <button onclick="help()">Help</button>
 
         <pre id="responseMessage" style="white-space:wrap;word-break:break-word;">
@@ -284,7 +279,6 @@
                 return;
             }
             apiRequest('/moveToPanel', 'POST', { panel: panelIndex });
-            updateCitySelect(panelIndex);
         }
 
         function advancePanels() {
@@ -297,7 +291,6 @@
             const currentPanel = parseInt(document.getElementById('citySelect').value);
             const panelIndex = (currentPanel + nbPanels) % cities.length;
             console.debug(document.getElementById('citySelect').value, nbPanels, panelIndex, cities[panelIndex]);
-            updateCitySelect(panelIndex);
         }
 
         function advancePulses() {
@@ -325,34 +318,27 @@
             apiRequest('/debug');
         }
 
-        function setupStart() {
-            apiRequest('/setupStart');
+        function saveSettings() {
+            apiRequest('/saveSettings');
         }
 
-        function setupNext() {
-            apiRequest('/setupNext');
+        function loadSettings() {
+            apiRequest('/loadSettings');
+
+            apiRequest('/debug').then(data => {
+                let json = JSON.parse(data);
+                let defaultPulse = parseInt(json.dfltPulse);
+                document.getElementById('inDefaultPulse').value = defaultPulse;
+            });
         }
 
-        function setupEnd() {
-            const panel = parseInt(document.getElementById('setupEndInput').value);
-            if (!panel) {
-                alert('Please enter a panel number.');
-                return;
-            }
-            apiRequest('/setupEnd', 'POST', { panel });
-        }
-
-        function setupCancel() {
-            apiRequest('/setupCancel');
-        }
-
-        function setupManual() {
-            const pulse = parseInt(document.getElementById('setupManualInput').value);
+        function setDefaultPulse() {
+            const pulse = parseInt(document.getElementById('inDefaultPulse').value);
             if (!pulse) {
                 alert('Please enter a pulse offset.');
                 return;
             }
-            apiRequest('/setupManual', 'POST', { pulse });
+            apiRequest('/setDefaultPulse', 'POST', { pulse });
         }
 
         function help() {

@@ -15,11 +15,9 @@ enum AppState {
   EMERGENCY_STOPPED,
   STOPPED,
   AUTO_CALIBRATING,
-  MOVING_TO_TARGET,
   CALIBRATING,
-  SETUP_GO_TO_ZERO,
-  SETUP_MOVE_PULSE,
-  SETUP_WAITING_COMMAND
+  MOVING_TO_TARGET,
+  MOVING_TO_TARGET_SLOW,
 };
 
 // Prototypes declaration
@@ -185,20 +183,17 @@ String stateToString(AppState state) {
       return "EMERGENCY_STOPPED";
     case STOPPED:
       return "STOPPED";
+    case CALIBRATING:
+      return "CALIBRATING";
     case AUTO_CALIBRATING:
       return "AUTO_CALIBRATING";
     case MOVING_TO_TARGET:
       return "MOVING_TO_TARGET";
-    case CALIBRATING:
-      return "CALIBRATING";
-    case SETUP_GO_TO_ZERO:
-      return "SETUP_GO_TO_ZERO";
-    case SETUP_MOVE_PULSE:
-      return "SETUP_MOVE_PULSE";
-    case SETUP_WAITING_COMMAND:
-      return "SETUP_WAITING_COMMAND";
+    case MOVING_TO_TARGET_SLOW:
+      return "MOVING_TO_TARGET_SLOW";
     default:
-      return "UNKNOWN";
+      emergencyStop("Unknown app state: " + String((int)state));
+      return "UNKNOWN_STATE";
   }
 }
 
@@ -244,44 +239,22 @@ String doGetSerialCommands() {
   return serialCommandHandler.getCommandsList();
 }
 
-String doSetupManual(int pulse) {
+String doSetDefaultPulse(int pulse) {
+  if (pulse < 0 || pulse >= PULSES_COUNT) {
+    return "Error: default pulse " + String(pulse) + " out of bounds [0-" + String(PULSES_COUNT) + "]";
+  }
   defaultPulse = pulse;
-  assertError(defaultPulse >= 0 && defaultPulse < PULSES_COUNT, [] { return "defaultPulse " + String(defaultPulse) + " out of bounds [0-" + String(PULSES_COUNT) + "]"; });
+  return "Default pulse set to " + String(defaultPulse) + ". Default panel is " + String(getDefaultPanel()) + " with offset " + String(getDefaultPulseOffset());
+}
+
+String doSaveSettings() {
   saveDefaultPulse();
-  return "Setup completed. Default pulse set to " + String(defaultPulse) + ". Default panel is " + String(getDefaultPanel()) + " with offset " + String(getDefaultPulseOffset());
+  return "Settings saved !";
 }
 
-String doSetupStart() {
-  calibrated = false;  // Flag is used by state machine for going to next state
-  defaultPulse = 0;
-  setCurrentState(SETUP_GO_TO_ZERO);
-  return "Going to zero. Wait for the motor to stop, then call 'setupNext'.";
-}
-
-String doSetupNext() {
-  if (currentState != SETUP_WAITING_COMMAND) {
-    return "Error. Call 'setupStart' first and wait for the motor to stop.";
-  }
-  setCurrentState(SETUP_MOVE_PULSE);
-  targetPulses = (getCurrentPulses() + 1) % PULSES_COUNT;
-  return "Moving to next pulse. Call 'setupNext' if the panel did not change. Call 'setupEnd x' if the panel changed.";
-}
-
-String doSetupEndSetPanelNb(int panel) {
-  if (currentState != SETUP_WAITING_COMMAND) {
-    return "Error. Call 'setupStart' first and wait for the motor to stop.";
-  }
-  setCurrentState(STOPPED);
-  defaultPulse = (panel * PULSES_PER_PANEL) - getCurrentPulses();
-  assertError(defaultPulse >= 0 && defaultPulse < PULSES_COUNT, [] { return "defaultPulse " + String(defaultPulse) + " out of bounds [0-" + String(PULSES_COUNT) + "]"; });
-  saveDefaultPulse();
-  return "Setup completed. Default pulse saved as " + String(defaultPulse) + ". Default panel is " + String(getDefaultPanel()) + " with offset " + String(getDefaultPulseOffset());
-}
-
-String doSetupCancel() {
-  setCurrentState(STOPPED);
+String doLoadSettings() {
   loadDefaultPulse();
-  return "Setup canceled. Default pulse retored to " + String(defaultPulse) + ". Default panel is " + String(getDefaultPanel()) + " with offset " + String(getDefaultPulseOffset());
+  return "Settings loaded !";
 }
 
 String doGetDebug() {
@@ -311,7 +284,7 @@ String doAdvancePanels(int count) {
 String doAdvancePulses(int pulseCount) {
   int currentPulses = getCurrentPulses();
   setTargetPulses((currentPulses + pulseCount) % PULSES_COUNT);
-  setCurrentState(MOVING_TO_TARGET);
+  setCurrentState(MOVING_TO_TARGET_SLOW);
   return "Advancing " + String(pulseCount) + " pulses to " + String(targetPulses);
 }
 
@@ -357,10 +330,6 @@ bool isTargetPulseReached() {
   return getRemainingPulses() == 0;
 }
 
-float calculateSpeedSetup() {
-  return 0.15f;
-}
-
 float calculateSpeedCalibration() {
   if (OPTICAL_DETECTED_EDGE == RISING) {
     return opticalState == LOW ? 0.3f : 1.f;  // Half speed when we are about to detect the 2nd edge
@@ -384,6 +353,10 @@ float calculateSpeedMovingToTarget() {
   }
 }
 
+float calculateSpeedMovingToTargetSlow() {
+  return 0.15f;
+}
+
 /**
  * Make state transitions based on current state and conditions
  * ! The currentState is the only variable that should be modified in this function !
@@ -394,11 +367,18 @@ void evaluateStateTransitions() {
     case STOPPED:
       // Nothing to do, wait for command
       break;
+    case CALIBRATING: {
+      if (calibrated) {
+        setCurrentState(STOPPED);
+      }
+      break;
+    }
     case AUTO_CALIBRATING: {
       if (calibrated) {
         setCurrentState(MOVING_TO_TARGET);
       }
-    } break;
+      break;
+    } 
     case MOVING_TO_TARGET: {
       if (!calibrated) {
         setCurrentState(AUTO_CALIBRATING);
@@ -408,25 +388,10 @@ void evaluateStateTransitions() {
       }
       break;
     }
-    case CALIBRATING: {
-      if (calibrated) {
-        setCurrentState(MOVING_TO_TARGET);
-      }
-      break;
-    }
-    case SETUP_GO_TO_ZERO: {
-      if (calibrated) {
-        setCurrentState(SETUP_WAITING_COMMAND);
-      }
-      break;
-    }
-    case SETUP_MOVE_PULSE: {
+    case MOVING_TO_TARGET_SLOW: {
       if (isTargetPulseReached()) {
-        setCurrentState(SETUP_WAITING_COMMAND);
+        setCurrentState(STOPPED);
       }
-      break;
-    }
-    case SETUP_WAITING_COMMAND: {
       break;
     }
   }
@@ -438,6 +403,7 @@ void processStateActions() {
     case STOPPED:
       setMotorSpeed(0);
       break;
+    case CALIBRATING:
     case AUTO_CALIBRATING: {
       float speed = calculateSpeedCalibration();
       setMotorSpeed(speed);
@@ -447,22 +413,11 @@ void processStateActions() {
       float speed = calculateSpeedMovingToTarget();
       setMotorSpeed(speed);
     } break;
-    case CALIBRATING: {
-      float speed = calculateSpeedCalibration();
+    case MOVING_TO_TARGET_SLOW: {
+      float speed = calculateSpeedMovingToTargetSlow();
       setMotorSpeed(speed);
-    } break;
-    case SETUP_GO_TO_ZERO: {
-      float speed = calculateSpeedCalibration();
-      setMotorSpeed(speed);
-    } break;
-    case SETUP_MOVE_PULSE: {
-      float speed = calculateSpeedSetup();
-      setMotorSpeed(speed);
-    } break;
-    case SETUP_WAITING_COMMAND: {
-      setMotorSpeed(0);
       break;
-    }
+    } 
   }
 }
 
@@ -592,11 +547,9 @@ void setup() {
   serialCommandHandler.registerCommand<int>("advancePanels", {"count"}, doAdvancePanels);
   serialCommandHandler.registerCommand<int>("advancePulses", {"count"}, doAdvancePulses);
   serialCommandHandler.registerCommand("panel", doGetCurrentPanel);
-  serialCommandHandler.registerCommand("setupStart", doSetupStart);
-  serialCommandHandler.registerCommand("setupNext", doSetupNext);
-  serialCommandHandler.registerCommand<int>("setupEnd", {"panel"}, doSetupEndSetPanelNb);
-  serialCommandHandler.registerCommand("setupCancel", doSetupCancel);
-  serialCommandHandler.registerCommand<int>("setupManual", {"pulse"}, doSetupManual);
+  serialCommandHandler.registerCommand("saveSettings", doSaveSettings);
+  serialCommandHandler.registerCommand("loadSettings", doLoadSettings);
+  serialCommandHandler.registerCommand<int>("setDefaultPulse", {"pulse"}, doSetDefaultPulse);
   serialCommandHandler.registerCommand("help", doGetSerialCommands);
 #ifdef DEBUG_ENABLED
   serialCommandHandler.registerCommand("incEncoder", [] { encoderPulsesRaw++; return ""; });
@@ -612,11 +565,9 @@ void setup() {
   restCommandHandler.registerCommand<int>("advancePanels", HTTP_POST, {"count"}, doAdvancePanels);
   restCommandHandler.registerCommand<int>("advancePulses", HTTP_POST, {"count"}, doAdvancePulses);
   restCommandHandler.registerCommand("panel", HTTP_GET, doGetCurrentPanel);
-  restCommandHandler.registerCommand("setupStart", HTTP_GET, doSetupStart);
-  restCommandHandler.registerCommand("setupNext", HTTP_GET, doSetupNext);
-  restCommandHandler.registerCommand<int>("setupEnd", HTTP_POST, {"panel"}, doSetupEndSetPanelNb);
-  restCommandHandler.registerCommand("setupCancel", HTTP_GET, doSetupCancel);
-  restCommandHandler.registerCommand<int>("setupManual", HTTP_POST, {"pulse"}, doSetupManual);
+  restCommandHandler.registerCommand("saveSettings", HTTP_GET, doSaveSettings);
+  restCommandHandler.registerCommand("loadSettings", HTTP_GET, doLoadSettings);
+  restCommandHandler.registerCommand<int>("setDefaultPulse", HTTP_POST, {"pulse"}, doSetDefaultPulse);
   restCommandHandler.registerCommand("help", HTTP_GET, doGetRestRoutes);
 
   cors.setOrigin("*");
