@@ -247,6 +247,17 @@ String doSetDefaultPulse(int pulse) {
   return "Default pulse set to " + String(defaultPulse) + ". Default panel is " + String(getDefaultPanel()) + " with offset " + String(getDefaultPulseOffset());
 }
 
+String doSetDefaultPanelAndOffset(int panel, int offset) {
+  if (panel < 0 || panel >= PANELS_COUNT) {
+    return "Error: default panel " + String(panel) + " out of bounds [0-" + String(PANELS_COUNT) + "]";
+  }
+  if (offset < 0 || offset >= PULSES_PER_PANEL) {
+    return "Error: default offset " + String(offset) + " out of bounds [0-" + String(PULSES_PER_PANEL) + "]"; //TODO fonction pour checks bounds homogène
+  }
+  defaultPulse = panel * PULSES_PER_PANEL + offset;
+  return "Default pulse set to " + String(defaultPulse) + ". Default panel is " + String(getDefaultPanel()) + " with offset " + String(getDefaultPulseOffset());
+}
+
 String doSaveSettings() {
   saveDefaultPulse();
   return "Settings saved !";
@@ -568,6 +579,7 @@ void setup() {
   restCommandHandler.registerCommand("saveSettings", HTTP_GET, doSaveSettings);
   restCommandHandler.registerCommand("loadSettings", HTTP_GET, doLoadSettings);
   restCommandHandler.registerCommand<int>("setDefaultPulse", HTTP_POST, {"pulse"}, doSetDefaultPulse);
+  restCommandHandler.registerCommand<int, int>("setDefaultPanelAndOffset", HTTP_POST, {"panel", "offset"}, doSetDefaultPanelAndOffset);
   restCommandHandler.registerCommand("help", HTTP_GET, doGetRestRoutes);
 
   cors.setOrigin("*");

@@ -204,7 +204,13 @@
         <button onclick="advancePulses()">Advance Pulses</button>
 
         <h2>Settings</h2>
+        <label for="inDefaultPulse">Default pulse</label>
         <input type="number" id="inDefaultPulse" placeholder="Enter Pulse Offset" value="289" onchange="setDefaultPulse()">
+        <br/><br/>
+        <label for="inDefaultPanel">Default panel/offset</label>
+        <input type="number" id="inDefaultPanel" placeholder="Enter panel" value="12" onchange="setDefaultPanelAndOffset()">
+        <input type="number" id="inDefaultOffset" placeholder="Enter offset" value="1" onchange="setDefaultPanelAndOffset()">
+        <br/><br/>
         <button onclick="saveSettings()">saveSettings</button>
         <button onclick="loadSettings()">loadSettings</button>
         <button onclick="help()">Help</button>
@@ -324,21 +330,43 @@
 
         function loadSettings() {
             apiRequest('/loadSettings');
-
-            apiRequest('/debug').then(data => {
-                let json = JSON.parse(data);
-                let defaultPulse = parseInt(json.dfltPulse);
-                document.getElementById('inDefaultPulse').value = defaultPulse;
-            });
         }
 
         function setDefaultPulse() {
             const pulse = parseInt(document.getElementById('inDefaultPulse').value);
-            if (!pulse) {
+            if (Number.isNaN(pulse)) {
                 alert('Please enter a pulse offset.');
                 return;
             }
             apiRequest('/setDefaultPulse', 'POST', { pulse });
+            updateSettings();
+        }
+
+        function setDefaultPanelAndOffset() {
+            const panel = parseInt(document.getElementById('inDefaultPanel').value);
+            if (Number.isNaN(panel)) {
+                alert('Please enter a panel.');
+                return;
+            }
+            const offset = parseInt(document.getElementById('inDefaultOffset').value);
+            if (Number.isNaN(offset)) {
+                alert('Please enter an offset.');
+                return;
+            }
+            apiRequest('/setDefaultPanelAndOffset', 'POST', { panel, offset });
+            updateSettings();
+        }
+
+        function updateSettings() {
+            apiRequest('/debug').then(data => {
+                let json = JSON.parse(data);
+                let defaultPulse = parseInt(json.dfltPulse);
+                let defaultPanel = parseInt(json.dfltPanel);
+                let defaultOffset = parseInt(json.dfltPulseOffset);
+                document.getElementById('inDefaultPulse').value = defaultPulse;
+                document.getElementById('inDefaultPanel').value = defaultPanel;
+                document.getElementById('inDefaultOffset').value = defaultOffset;
+            });
         }
 
         function help() {
