@@ -561,6 +561,7 @@ void setup() {
   serialCommandHandler.registerCommand("saveSettings", doSaveSettings);
   serialCommandHandler.registerCommand("loadSettings", doLoadSettings);
   serialCommandHandler.registerCommand<int>("setDefaultPulse", {"pulse"}, doSetDefaultPulse);
+  serialCommandHandler.registerCommand<int, int>("setDefaultPanelAndOffset", {"panel", "offset"}, doSetDefaultPanelAndOffset);
   serialCommandHandler.registerCommand("help", doGetSerialCommands);
 #ifdef DEBUG_ENABLED
   serialCommandHandler.registerCommand("incEncoder", [] { encoderPulsesRaw++; return ""; });
