@@ -63,7 +63,6 @@ static_assert(TARGET_PULSE_OFFSET >= 0 && TARGET_PULSE_OFFSET < PULSES_PER_PANEL
 AsyncWebServer server(80);
 AsyncCorsMiddleware cors;
 AsyncWebSocket ws("/panel");
-
 bool errorFlag = false;    // Emergency stop flag
 String errorMessage = "";  // Emergency stop message
 volatile AppState currentState = STOPPED;
@@ -191,10 +190,8 @@ String stateToString(AppState state) {
       return "MOVING_TO_TARGET";
     case MOVING_TO_TARGET_SLOW:
       return "MOVING_TO_TARGET_SLOW";
-    default:
-      emergencyStop("Unknown app state: " + String((int)state));
-      return "UNKNOWN_STATE";
   }
+  return "UNKNOWN_STATE"; //Not reachable
 }
 
 void setCurrentState(AppState newState) {
@@ -202,7 +199,7 @@ void setCurrentState(AppState newState) {
 }
 
 void saveDefaultPulse() {
-  EEPROM.write(0, defaultPulse);
+  EEPROM.write(0, defaultPulse); //TODO fonctionne pas ! 
   EEPROM.commit();
 }
 
@@ -303,7 +300,7 @@ String doCalibrate() {
   calibrated = false;
   setTargetPanel(0);  // After on-demand calibration, will go to panel 0
   setCurrentState(CALIBRATING);
-  return "Calibration started. Rotating until optical sensor edge is detected, then going to panel 0";
+  return "Calibration started. Rotating until optical sensor edge is detected.";
 }
 
 String doStop() {
