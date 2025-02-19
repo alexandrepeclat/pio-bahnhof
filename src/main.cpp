@@ -8,8 +8,6 @@
 #include <SerialCommandHandler.h>
 #include <Servo.h>
 #include <secrets.h>
-#include <map>
-#include <set>
 
 enum AppState {
   EMERGENCY_STOPPED,
@@ -528,7 +526,7 @@ void IRAM_ATTR handleEncoderInterrupt() {  // 4us
 
   // Check if the target is reached
   // Note: cannot be done in main loop because the motor can overshoot the target before the loop is executed
-  if (currentState == MOVING_TO_TARGET || currentState == MOVING_TO_TARGET_SLOW && targetPulses == getCurrentPulses()) {
+  if ((currentState == MOVING_TO_TARGET || currentState == MOVING_TO_TARGET_SLOW) && targetPulses == getCurrentPulses()) {
     currentState = STOPPED;
   }
 }
