@@ -117,6 +117,7 @@ std::vector<DebugField> debugFields = {
     {"optEdgeCount", true, [] { return opticalDetectedEdgesCount; }},
     {"encIntCount", false, [] { return encoderInterruptCallCount; }},
 #endif
+    {"wsClients", true, [] { return ws.count(); }},
     {"state", true, [] { return stateToString(currentState); }},
     {"errorMessage", true, [] { return errorMessage; }},
 };
@@ -527,7 +528,7 @@ void IRAM_ATTR handleEncoderInterrupt() {  // 4us
 
   // Check if the target is reached
   // Note: cannot be done in main loop because the motor can overshoot the target before the loop is executed
-  if (currentState == MOVING_TO_TARGET && targetPulses == getCurrentPulses()) {
+  if (currentState == MOVING_TO_TARGET || currentState == MOVING_TO_TARGET_SLOW && targetPulses == getCurrentPulses()) {
     currentState = STOPPED;
   }
 }
@@ -595,7 +596,7 @@ void setup() {
     request->send(LittleFS, "/index.html", "text/html");
   });
 
-  if (MDNS.begin("cff")) {  // TODO faire fonctionner
+  if (MDNS.begin("cff")) {
     Serial.println("mDNS démarré avec succès !");
   } else {
     Serial.println("Erreur lors de l'initialisation de mDNS");
@@ -631,11 +632,18 @@ void setup() {
 }
 
 void loop() {
-  connectToWiFi();  // Keep it alive //TODO Wifi non bloquant + voir si problèmes en cas de déconnexion avec le serveur http ou autre
-  readSensors();    // Read sensors and handle edge detection
-  evaluateStateTransitions();
-  processStateActions();
+
+  // Keep connections alive
+  connectToWiFi();  //TODO Wifi non bloquant + voir si problèmes en cas de déconnexion avec le serveur http ou autre
+  MDNS.update();
+
+  // Keep things running
+  readSensors();
+  evaluateStateTransitions(); // Decide next transition if any
+  processStateActions(); // Set behavior based on current state
   checkForRunningErrors();  // Check for blockages and co
+
+  //Handle commands and notifications to clients
   serialCommandHandler.handleSerial();
   restCommandHandler.handleClient();
   notifyPanelChanges();
