@@ -198,12 +198,12 @@ void setCurrentState(AppState newState) {
 }
 
 void saveDefaultPulse() {
-  EEPROM.write(0, defaultPulse); //TODO fonctionne pas ! 
+  EEPROM.put(0, defaultPulse);
   EEPROM.commit();
 }
 
 void loadDefaultPulse() {
-  defaultPulse = EEPROM.read(0);
+  EEPROM.get(0, defaultPulse);
 }
 
 int getCurrentRpm() {
@@ -612,7 +612,7 @@ void setup() {
 #endif
 
   // Read setup values from EEPROM
-  EEPROM.begin(256);
+  EEPROM.begin(8);
   loadDefaultPulse();
 
   // Servo setup

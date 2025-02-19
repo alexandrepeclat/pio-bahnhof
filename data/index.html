@@ -326,10 +326,12 @@
 
         function saveSettings() {
             apiRequest('/saveSettings');
+            setDefaultPulse(); //TODO bcp d'appels en cascade......
         }
 
         function loadSettings() {
             apiRequest('/loadSettings');
+            updateSettings();
         }
 
         function setDefaultPulse() {
