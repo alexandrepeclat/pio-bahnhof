@@ -616,7 +616,7 @@ void setup() {
 
   if (!LittleFS.begin()) {
     Serial.println("Erreur lors du montage de LittleFS !");
-    return;
+    return; //TODO return ici inutile car la boucle va démarrer et faire son job. On devrait lever un flag qui empeche la boucle de tourner
   }
 
   server.on("/", HTTP_GET, [](AsyncWebServerRequest* request) {
@@ -674,6 +674,7 @@ void loop() {
   restCommandHandler.handleClient();
   notifyPanelChanges();
 
+  // Print debug info if something's new
 #ifdef DEBUG_ENABLED
   if (debugBuilder.hasChanged()) {  // 110 us
     Serial.println(debugBuilder.buildJson());
