@@ -682,6 +682,11 @@ void loop() {
 #endif
 }
 
+/**
+ * Securely set the motor speed within boundaries, based on normalized value.
+ * Will set the motor to STOP_SPEED if an error was raised.
+ * @param normalizedSpeed The speed value between 0 and 1
+ */
 void setMotorSpeed(float normalizedSpeed) {
   // If error was raised, stop the motor
   if (errorFlag) {
@@ -697,10 +702,16 @@ void setMotorSpeed(float normalizedSpeed) {
   }
 }
 
+/**
+ * Normalize a speed value between STOP_SPEED and RUN_SPEED to a value between 0 and 1.
+ */
 float normalizeSpeed(int speed) {
   return map(speed, STOP_SPEED, RUN_SPEED, 0, 100) / 100.f;
 }
 
+/**
+ * Denormalize a speed value between 0 and 1 to a value between STOP_SPEED and RUN_SPEED.
+ */
 int denormalizeSpeed(float normalizedSpeed) {
   return map(normalizedSpeed * 100, 0, 100, STOP_SPEED, RUN_SPEED);
 }
