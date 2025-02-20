@@ -10,18 +10,47 @@
 #include <secrets.h>
 
 enum AppState {
+
+  /**
+   * Stopped state after an issue is detected.
+   */
   EMERGENCY_STOPPED,
+
+  /**
+   * Normal stopped (idle) state.
+   */
   STOPPED,
+
+  /**
+   * Auto-calibrating. Will move to target panel afterward.
+   */
   AUTO_CALIBRATING,
+
+  /**
+   * Manually calibrating. Will stop afterward.
+   */
   CALIBRATING,
+
+  /**
+   * Moving to target panel at normal speed.
+   * Will auto-calibrate if not already done, then return to this state.
+   * Will stop when target is reached.
+   */
   MOVING_TO_TARGET,
+
+  /**
+   * Moving to target panel at slow speed.
+   * Will not try to auto-calibrate.
+   * Will stop when target is reached.
+   * Used for settings adjustments or debugging.
+   */
   MOVING_TO_TARGET_SLOW,
 };
 
 // Prototypes declaration
-int getCurrentPulses();
+int getCurrentPulse();
 int getCurrentPanel();
-int getTargetPulses();
+int getTargetPulse();
 float calculateSpeedMovingToTarget();
 int getRemainingPulses();
 void setMotorSpeed(float normalizedSpeed);
@@ -39,22 +68,21 @@ float normalizeSpeed(int speed);
 int denormalizeSpeed(float normalizedSpeed);
 int computePulsesForwardDistance(int from, int to);
 int computePulsesMinDistance(int from, int to);
-int computeRpm(int lastPulses, int currentPulses, unsigned long lastTime, unsigned long currentTime);
+int computeRpm(int lastPulse, int currentPulse, unsigned long lastTime, unsigned long currentTime);
 
 #define DEBUG_ENABLED
 
 // Pins configuration
-#define SERVO_PIN D1
-#define ENCODER_PIN_A D6       // GREEN
-#define ENCODER_PIN_B D7       // WHITE
-#define OPTICAL_SENSOR_PIN D4  // Pin pour le capteur optique
+#define SERVO_PIN D1      // Orange
+#define ENCODER_PIN_A D6  // Green
+#define ENCODER_PIN_B D7  // White
+#define OPTICAL_PIN D4    // Orange
 
-// Constants
+// Panels and pulses
 const int PANELS_COUNT = 62;
 const int PULSES_PER_PANEL = 24;                           // ENCODER_RESOLUTION / ENCODER_GEAR_TEETH * ENCODER_PULSES_PER_STEP = 360 / 60 * 4 = 24
 const int PULSES_COUNT = PANELS_COUNT * PULSES_PER_PANEL;  // Nombre total d'impulsions
-const int ENCODER_DIRECTION_SIGN = 1;
-const int TARGET_PULSE_OFFSET = 12;  // When setting a target panel, use the nth pulse of this panel for centering
+const int TARGET_PULSE_OFFSET = 12;  // When setting a target panel, use the nth pulse of this panel for centering //TODO à voir si configurable (et vitesse aussi car dépend de elle)
 static_assert(TARGET_PULSE_OFFSET >= 0 && TARGET_PULSE_OFFSET < PULSES_PER_PANEL, "OFFSET must be in range [0-PULSES_PER_PANEL]");
 
 // Globals
@@ -69,10 +97,11 @@ SerialCommandHandler serialCommandHandler;
 RestCommandHandler restCommandHandler(server);
 
 // Encoder
-int defaultPulse = 0;
-int targetPulses = 0;
-volatile int encoderPulsesRaw = 0;
+const int8_t ENCODER_DIRECTION_SIGN = 1;
 const int8_t ENCODER_STATE_TABLE[16] = {0, 1, -1, -0, -1, 0, -0, 1, 1, -0, 0, -1, -0, -1, 1, 0};  // Encoder state table for natural debouncing (-0 are non valid states)
+int defaultPulse = 0;
+int targetPulse = 0;
+volatile int encoderPulsesRaw = 0;
 
 // Optical sensor
 const int OPTICAL_DETECTED_EDGE = RISING;  // Capteur à 1 quand coupé / 0 quand trou / ralentit quand trou, et calibre sur rising vers coupé
@@ -97,9 +126,9 @@ volatile int opticalDetectedEdgesCount = 0;
 
 std::vector<DebugField> debugFields = {
     {"currentPanel", false, [] { return getCurrentPanel(); }},
-    {"currentPulses", true, [] { return getCurrentPulses(); }},
+    {"currentPulse", true, [] { return getCurrentPulse(); }},
     {"targetPanel", false, [] { return getTargetPanel(); }},
-    {"targetPulses", true, [] { return getTargetPulses(); }},
+    {"targetPulse", true, [] { return getTargetPulse(); }},
     {"optical", true, [] { return opticalState; }},
     {"calibrated", true, [] { return calibrated; }},
     {"dist", false, [] { return getRemainingPulses(); }},
@@ -141,30 +170,30 @@ void emergencyStop(String message) {
   errorMessage = message;
 }
 
-int IRAM_ATTR getCurrentPulses() {
+int IRAM_ATTR getCurrentPulse() {
   return (encoderPulsesRaw + defaultPulse) % PULSES_COUNT;
 }
 
-void setTargetPulses(int pulses) {
-  assertError(pulses >= 0 && pulses < PULSES_COUNT, [pulses] { return "pulses " + String(pulses) + " out of bounds"; });
-  targetPulses = pulses;
+void setTargetPulse(int pulse) {
+  assertError(pulse >= 0 && pulse < PULSES_COUNT, [pulse] { return "pulse " + String(pulse) + " out of bounds"; });
+  targetPulse = pulse;
 }
 
-int getTargetPulses() {
-  return targetPulses;
+int getTargetPulse() {
+  return targetPulse;
 }
 
 int getCurrentPanel() {
-  return getCurrentPulses() / PULSES_PER_PANEL;
+  return getCurrentPulse() / PULSES_PER_PANEL;
 }
 
 int getTargetPanel() {
-  return targetPulses / PULSES_PER_PANEL;
+  return targetPulse / PULSES_PER_PANEL;
 }
 
 void setTargetPanel(int panel) {
   assertError(panel < PANELS_COUNT, [panel] { return "panel " + String(panel) + " > " + PANELS_COUNT; });
-  setTargetPulses((panel * PULSES_PER_PANEL) + TARGET_PULSE_OFFSET);
+  setTargetPulse((panel * PULSES_PER_PANEL) + TARGET_PULSE_OFFSET);
 }
 
 int getDefaultPanel() {
@@ -190,7 +219,7 @@ String stateToString(AppState state) {
     case MOVING_TO_TARGET_SLOW:
       return "MOVING_TO_TARGET_SLOW";
   }
-  return "UNKNOWN_STATE"; //Not reachable
+  return "UNKNOWN_STATE";  // Not reachable
 }
 
 void setCurrentState(AppState newState) {
@@ -207,21 +236,21 @@ void loadDefaultPulse() {
 }
 
 int getCurrentRpm() {
-  static int lastPulses = 0;
+  static int lastPulse = 0;
   static unsigned long lastTime = 0;
-  int currentPulses = getCurrentPulses();
+  int currentPulse = getCurrentPulse();
   unsigned long currentTime = millis();
-  int rpm = computeRpm(lastPulses, currentPulses, lastTime, currentTime);
-  lastPulses = currentPulses;
+  int rpm = computeRpm(lastPulse, currentPulse, lastTime, currentTime);
+  lastPulse = currentPulse;
   lastTime = currentTime;
   return rpm;
 }
 
-int computeRpm(int lastPulses, int currentPulses, unsigned long lastTime, unsigned long currentTime) {
+int computeRpm(int lastPulse, int currentPulse, unsigned long lastTime, unsigned long currentTime) {
   unsigned long elapsedTime = currentTime - lastTime;
   if (elapsedTime == 0)
     return 0;  // Avoid divide by 0
-  int pulsesDelta = computePulsesForwardDistance(lastPulses, currentPulses);
+  int pulsesDelta = computePulsesForwardDistance(lastPulse, currentPulse);
   return (pulsesDelta * 60000.0) / (elapsedTime * PULSES_COUNT);
 }
 
@@ -248,7 +277,7 @@ String doSetDefaultPanelAndOffset(int panel, int offset) {
     return "Error: default panel " + String(panel) + " out of bounds [0-" + String(PANELS_COUNT) + "]";
   }
   if (offset < 0 || offset >= PULSES_PER_PANEL) {
-    return "Error: default offset " + String(offset) + " out of bounds [0-" + String(PULSES_PER_PANEL) + "]"; //TODO fonction pour checks bounds homogène
+    return "Error: default offset " + String(offset) + " out of bounds [0-" + String(PULSES_PER_PANEL) + "]";  // TODO fonction pour checks bounds homogène
   }
   defaultPulse = panel * PULSES_PER_PANEL + offset;
   return "Default pulse set to " + String(defaultPulse) + ". Default panel is " + String(getDefaultPanel()) + " with offset " + String(getDefaultPulseOffset());
@@ -289,10 +318,10 @@ String doAdvancePanels(int count) {
 }
 
 String doAdvancePulses(int pulseCount) {
-  int currentPulses = getCurrentPulses();
-  setTargetPulses((currentPulses + pulseCount) % PULSES_COUNT);
+  int currentPulse = getCurrentPulse();
+  setTargetPulse((currentPulse + pulseCount) % PULSES_COUNT);
   setCurrentState(MOVING_TO_TARGET_SLOW);
-  return "Advancing " + String(pulseCount) + " pulses to " + String(targetPulses);
+  return "Advancing " + String(pulseCount) + " pulses to " + String(targetPulse);
 }
 
 String doCalibrate() {
@@ -305,7 +334,7 @@ String doCalibrate() {
 String doStop() {
   setMotorSpeed(0);
   setCurrentState(STOPPED);
-  setTargetPulses(getCurrentPulses());  // Consider target as reached
+  setTargetPulse(getCurrentPulse());  // Consider target as reached
   return "Stopped. Current panel set to " + String(getCurrentPanel());
 }
 
@@ -329,8 +358,8 @@ int IRAM_ATTR computePulsesMinDistance(int from, int to) {
 }
 
 int getRemainingPulses() {
-  int currentPulses = getCurrentPulses();
-  return computePulsesForwardDistance(currentPulses, targetPulses);
+  int currentPulse = getCurrentPulse();
+  return computePulsesForwardDistance(currentPulse, targetPulse);
 }
 
 bool isTargetPulseReached() {
@@ -385,7 +414,7 @@ void evaluateStateTransitions() {
         setCurrentState(MOVING_TO_TARGET);
       }
       break;
-    } 
+    }
     case MOVING_TO_TARGET: {
       if (!calibrated) {
         setCurrentState(AUTO_CALIBRATING);
@@ -424,12 +453,12 @@ void processStateActions() {
       float speed = calculateSpeedMovingToTargetSlow();
       setMotorSpeed(speed);
       break;
-    } 
+    }
   }
 }
 
 void readSensors() {
-  opticalState = digitalRead(OPTICAL_SENSOR_PIN);
+  opticalState = digitalRead(OPTICAL_PIN);
 }
 
 void connectToWiFi() {
@@ -450,7 +479,7 @@ void checkForRunningErrors() {
   int motorSpeed = servo.read();
 
   // static unsigned long lastCheckTime = 0;  // TODO marche pas bien détecte faux positifs lors d'accélérations décélérations
-  // static int lastEncoderPulses = 0;
+  // static int lastEncoder = 0;
   // static unsigned long warmupTimeout = BLOCKAGE_TIMEOUT_WARMUP;
 
   // if (motorSpeed > STOP_SPEED) {
@@ -458,27 +487,27 @@ void checkForRunningErrors() {
   //   unsigned long elapsedTime = currentTime - lastCheckTime;  // Temps écoulé depuis la dernière vérification
 
   //   if (elapsedTime > BLOCKAGE_TIMEOUT + warmupTimeout) {
-  //     int currentPulses = getCurrentPulses();
+  //     int currentPulse = getCurrentPulse();
   //     blockageExpectedRPM = BLOCKAGE_RPM_AT_MAX_SPEED * normalizeSpeed(motorSpeed) * BLOCKAGE_RPM_TOLERANCE;
-  //     blockageActualRPM = computeRpm(lastEncoderPulses, currentPulses, lastCheckTime, currentTime);
+  //     blockageActualRPM = computeRpm(lastEncoderPulse, currentPulse, lastCheckTime, currentTime);
   //     if (blockageActualRPM < blockageExpectedRPM) {
   //       emergencyStop("Blockage detected: motorSpeed=" + String(motorSpeed)    //
   //                     + " blockageActualRPM=" + String(blockageActualRPM)      //
   //                     + " blockageExpectedRPM=" + String(blockageExpectedRPM)  //
-  //                     + " lastEncoderPulses=" + String(lastEncoderPulses)      //
-  //                     + " currentPulses=" + String(currentPulses)              //
+  //                     + " lastEncoderPulse=" + String(lastEncoderPulse)      //
+  //                     + " currentPulse=" + String(currentPulse)              //
   //                     + " elapsedTime=" + String(elapsedTime));
   //     }
 
   //     // Mettre à jour les valeurs de référence
   //     lastCheckTime = currentTime;
-  //     lastEncoderPulses = currentPulses;
+  //     lastEncoderPulse = currentPulse;
   //     warmupTimeout = 0l;  // No warmup before next checks
   //   }
   // } else {
   //   // Réinitialise les valeurs quand le moteur est à l’arrêt
   //   lastCheckTime = millis();
-  //   lastEncoderPulses = getCurrentPulses();
+  //   lastEncoderPulse = getCurrentPulse();
   //   warmupTimeout = BLOCKAGE_TIMEOUT_WARMUP;  // Set warmup for next motor start before checks
   // }
 
@@ -510,11 +539,11 @@ void IRAM_ATTR handleEncoderInterrupt() {  // 4us
   // Check if the optical sensor detected the edge
   // If so, zero the encoder + consider calibration as done
   static bool opticalLastState = HIGH;  // Initialize to HIGH (not detected)
-  opticalState = (GPIO_REG_READ(GPIO_IN_ADDRESS) >> OPTICAL_SENSOR_PIN) & 1;
+  opticalState = (GPIO_REG_READ(GPIO_IN_ADDRESS) >> OPTICAL_PIN) & 1;
   if ((OPTICAL_DETECTED_EDGE == RISING && opticalLastState == LOW && opticalState == HIGH) ||
       (OPTICAL_DETECTED_EDGE == FALLING && opticalLastState == HIGH && opticalState == LOW)) {
     assertWarn(!calibrated || computePulsesMinDistance(0, encoderPulsesRaw) <= 1, [] {
-      return "Missing steps... Optical edge detected at pulse " + String(getCurrentPulses()) + " instead of " + String(defaultPulse);
+      return "Missing steps... Optical edge detected at pulse " + String(getCurrentPulse()) + " instead of " + String(defaultPulse);
     });
     encoderPulsesRaw = 0;
     calibrated = true;
@@ -526,7 +555,7 @@ void IRAM_ATTR handleEncoderInterrupt() {  // 4us
 
   // Check if the target is reached
   // Note: cannot be done in main loop because the motor can overshoot the target before the loop is executed
-  if ((currentState == MOVING_TO_TARGET || currentState == MOVING_TO_TARGET_SLOW) && targetPulses == getCurrentPulses()) {
+  if ((currentState == MOVING_TO_TARGET || currentState == MOVING_TO_TARGET_SLOW) && targetPulse == getCurrentPulse()) {
     currentState = STOPPED;
   }
 }
@@ -620,7 +649,7 @@ void setup() {
   servo.write(STOP_SPEED);  // Ensure the servo starts stopped using the centralized function
 
   // Optical sensor setup
-  pinMode(OPTICAL_SENSOR_PIN, INPUT);  // Configure le capteur optique en entrée
+  pinMode(OPTICAL_PIN, INPUT);  // Configure le capteur optique en entrée
 
   // Encoder setup
   pinMode(ENCODER_PIN_A, INPUT_PULLUP);
@@ -630,18 +659,17 @@ void setup() {
 }
 
 void loop() {
-
   // Keep connections alive
-  connectToWiFi();  //TODO Wifi non bloquant + voir si problèmes en cas de déconnexion avec le serveur http ou autre
+  connectToWiFi();  // TODO Wifi non bloquant + voir si problèmes en cas de déconnexion avec le serveur http ou autre
   MDNS.update();
 
   // Keep things running
   readSensors();
-  evaluateStateTransitions(); // Decide next transition if any
-  processStateActions(); // Set behavior based on current state
-  checkForRunningErrors();  // Check for blockages and co
+  evaluateStateTransitions();  // Decide next transition if any
+  processStateActions();       // Set behavior based on current state
+  checkForRunningErrors();     // Check for blockages and co
 
-  //Handle commands and notifications to clients
+  // Handle commands and notifications to clients
   serialCommandHandler.handleSerial();
   restCommandHandler.handleClient();
   notifyPanelChanges();
