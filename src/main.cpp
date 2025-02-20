@@ -48,7 +48,7 @@ enum AppState {
 };
 
 // Prototypes declaration
-int getCurrentPulse();
+int getCurrentPulse();//TODO réorganiser les fonctions dans un ordre correct
 int getCurrentPanel();
 int getTargetPulse();
 float calculateSpeedMovingToTarget();
@@ -93,6 +93,7 @@ bool errorFlag = false;    // Emergency stop flag
 String errorMessage = "";  // Emergency stop message
 volatile AppState currentState = STOPPED;
 volatile bool calibrated = false;
+DebugBuilder debugBuilder(debugFields);
 SerialCommandHandler serialCommandHandler;
 RestCommandHandler restCommandHandler(server);
 
@@ -149,7 +150,6 @@ std::vector<DebugField> debugFields = {
     {"errorMessage", true, [] { return errorMessage; }},
 };
 
-DebugBuilder debugBuilder(debugFields);
 
 void assertError(bool condition, const std::function<String()>& messageBuilder) {
   if (!condition) {

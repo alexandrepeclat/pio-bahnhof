@@ -1,25 +1,22 @@
 ### TODO MECANIQUE :
-
+```
 - Fixation roue encodeur : rondelle <0.8mm ?
 - Fixation roue optique : 3x rondelles 16mm/0.8mm
 - Espacer les roues imprimées de 0.1-2mm (ou les diminuer de taille) pour avoir une tolérance ?
+```
 
 ### TODO SOFTWARE :
-
+```
  TODO ça semble se mettre en veille au bout d'un moment...... mais ça semble réglé
-
- TODO réorganiser la détection d'erreurs
-
+ TODO réorganiser la détection d'erreurs.
 - on a emergencyStop et assertThis un peu interchangeables
 - on a des checks sur des getters ou à des moments dans la logique du code et dans les fonctions dédiées...
-
+- le state, flag et message sont un peu redondants
  TODO s'assurer que tous les "getters" utilisés notamment dans les debug ne change pas les états ou valeurs :-)
-
  TODO Vérifier les valeurs passées depuis l'api un peu mieux en terme de limites
-
  TODO API pour donner la liste des villes ? Dépend du matos après-tout par contre on va pas fournir les traductions pour la reconnaissance vocale ?
-
  TODO sécuriser API ?
+```
 
 ### Flash to board
 
