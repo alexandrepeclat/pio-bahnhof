@@ -227,7 +227,7 @@ void setCurrentState(AppState newState) {
 }
 
 void saveDefaultPulse() {
-  EEPROM.put(0, defaultPulse);
+  EEPROM.put(0, defaultPulse); //TODO utiliser littlefs pour un fichier settings.json
   EEPROM.commit();
 }
 
