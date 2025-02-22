@@ -134,6 +134,10 @@ class RestCommandHandler {
     // No need to handle client in AsyncWebServer
   }
 
+  int getRoutesCount() {
+    return _routes.size();
+  }
+
   // Retrieve the list of API routes with method and parameters
   String getRoutesList() {
     String list = "[";

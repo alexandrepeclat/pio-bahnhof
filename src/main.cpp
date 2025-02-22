@@ -3,6 +3,7 @@
 #include <ESP8266WiFi.h>
 #include <ESP8266mDNS.h>
 #include <ESPAsyncWebServer.h>
+#include <JsonSettingsBase.h>
 #include <LittleFS.h>
 #include <RestCommandHandler.h>
 #include <SerialCommandHandler.h>
@@ -48,7 +49,7 @@ enum AppState {
 };
 
 // Prototypes declaration
-int getCurrentPulse();//TODO réorganiser les fonctions dans un ordre correct
+int getCurrentPulse();  // TODO réorganiser les fonctions dans un ordre correct
 int getCurrentPanel();
 int getTargetPulse();
 float calculateSpeedMovingToTarget();
@@ -59,8 +60,6 @@ int getTargetPanel();
 void emergencyStop(String message);
 String stateToString(AppState state);
 void setCurrentState(AppState newState);
-void saveDefaultPulse();
-void loadDefaultPulse();
 int getDefaultPanel();
 int getDefaultPulseOffset();
 int getCurrentRpm();
@@ -82,7 +81,7 @@ int computeRpm(int lastPulse, int currentPulse, unsigned long lastTime, unsigned
 const int PANELS_COUNT = 62;
 const int PULSES_PER_PANEL = 24;                           // ENCODER_RESOLUTION / ENCODER_GEAR_TEETH * ENCODER_PULSES_PER_STEP = 360 / 60 * 4 = 24
 const int PULSES_COUNT = PANELS_COUNT * PULSES_PER_PANEL;  // Nombre total d'impulsions
-const int TARGET_PULSE_OFFSET = 12;  // When setting a target panel, use the nth pulse of this panel for centering //TODO à voir si configurable (et vitesse aussi car dépend de elle)
+const int TARGET_PULSE_OFFSET = 12;                        // When setting a target panel, use the nth pulse of this panel for centering //TODO à voir si configurable (et vitesse aussi car dépend de elle)
 static_assert(TARGET_PULSE_OFFSET >= 0 && TARGET_PULSE_OFFSET < PULSES_PER_PANEL, "OFFSET must be in range [0-PULSES_PER_PANEL]");
 
 // Globals
@@ -93,14 +92,12 @@ bool errorFlag = false;    // Emergency stop flag
 String errorMessage = "";  // Emergency stop message
 volatile AppState currentState = STOPPED;
 volatile bool calibrated = false;
-DebugBuilder debugBuilder(debugFields);
 SerialCommandHandler serialCommandHandler;
 RestCommandHandler restCommandHandler(server);
 
 // Encoder
 const int8_t ENCODER_DIRECTION_SIGN = 1;
 const int8_t ENCODER_STATE_TABLE[16] = {0, 1, -1, -0, -1, 0, -0, 1, 1, -0, 0, -1, -0, -1, 1, 0};  // Encoder state table for natural debouncing (-0 are non valid states)
-int defaultPulse = 0;
 int targetPulse = 0;
 volatile int encoderPulsesRaw = 0;
 
@@ -125,31 +122,51 @@ volatile int encoderInterruptCallCount = 0;
 volatile int opticalDetectedEdgesCount = 0;
 #endif
 
-std::vector<DebugField> debugFields = {
-    {"currentPanel", false, [] { return getCurrentPanel(); }},
-    {"currentPulse", true, [] { return getCurrentPulse(); }},
-    {"targetPanel", false, [] { return getTargetPanel(); }},
-    {"targetPulse", true, [] { return getTargetPulse(); }},
-    {"optical", true, [] { return opticalState; }},
-    {"calibrated", true, [] { return calibrated; }},
-    {"dist", false, [] { return getRemainingPulses(); }},
-    {"servo", true, [] { return servo.read(); }},  // TODO à voir parfois une valeur ne change pas mais le hash est différent (se produit dans les états ou le servo tourne)
-    {"dfltPulse", true, [] { return defaultPulse; }},
-    {"dfltPanel", false, [] { return getDefaultPanel(); }},
-    {"dfltPulseOffset", false, [] { return getDefaultPulseOffset(); }},
-#ifdef DEBUG_ENABLED
-    {"rpm", false, [] { return getCurrentRpm(); }},
-    {"bActRpm", false, [] { return blockageActualRPM; }},
-    {"bExpRpm", false, [] { return blockageExpectedRPM; }},
-    {"encPulsesRaw", false, [] { return encoderPulsesRaw; }},
-    {"optEdgeCount", true, [] { return opticalDetectedEdgesCount; }},
-    {"encIntCount", false, [] { return encoderInterruptCallCount; }},
-#endif
-    {"wsClients", true, [] { return ws.count(); }},
-    {"state", true, [] { return stateToString(currentState); }},
-    {"errorMessage", true, [] { return errorMessage; }},
-};
+class Settings : public JsonSettingsBase {
+ public:
+  int defaultPulse = 0;
+  String mdnsName = "cff";
 
+  Settings()
+      : JsonSettingsBase("/settings.json") {}
+
+  void serialize(JsonDocument& doc) override {
+    doc["defaultPulse"] = defaultPulse;
+    doc["mdnsName"] = mdnsName;
+  }
+
+  void deserialize(JsonDocument& doc) override {
+    defaultPulse = doc["defaultPulse"] | defaultPulse;
+    mdnsName = doc["mdnsName"] | mdnsName;
+  }
+};
+Settings settings;
+
+std::vector<DebugField> debugFields = {
+  {"currentPanel", false, [] { return getCurrentPanel(); }},
+  {"currentPulse", true, [] { return getCurrentPulse(); }},
+  {"targetPanel", false, [] { return getTargetPanel(); }},
+  {"targetPulse", true, [] { return getTargetPulse(); }},
+  {"optical", true, [] { return opticalState; }},
+  {"calibrated", true, [] { return calibrated; }},
+  {"dist", false, [] { return getRemainingPulses(); }},
+  {"servo", true, [] { return servo.read(); }},  // TODO à voir parfois une valeur ne change pas mais le hash est différent (se produit dans les états ou le servo tourne)
+  {"dfltPulse", true, [] { return settings.defaultPulse; }},
+  {"dfltPanel", false, [] { return getDefaultPanel(); }},
+  {"dfltPulseOffset", false, [] { return getDefaultPulseOffset(); }},
+#ifdef DEBUG_ENABLED
+  {"rpm", false, [] { return getCurrentRpm(); }},
+  {"bActRpm", false, [] { return blockageActualRPM; }},
+  {"bExpRpm", false, [] { return blockageExpectedRPM; }},
+  {"encPulsesRaw", false, [] { return encoderPulsesRaw; }},
+  {"optEdgeCount", true, [] { return opticalDetectedEdgesCount; }},
+  {"encIntCount", false, [] { return encoderInterruptCallCount; }},
+#endif
+  {"wsClients", true, [] { return ws.count(); }},
+  {"state", true, [] { return stateToString(currentState); }},
+  {"errorMessage", true, [] { return errorMessage; }},
+};
+DebugBuilder debugBuilder(debugFields);
 
 void assertError(bool condition, const std::function<String()>& messageBuilder) {
   if (!condition) {
@@ -171,7 +188,7 @@ void emergencyStop(String message) {
 }
 
 int IRAM_ATTR getCurrentPulse() {
-  return (encoderPulsesRaw + defaultPulse) % PULSES_COUNT;
+  return (encoderPulsesRaw + settings.defaultPulse) % PULSES_COUNT;
 }
 
 void setTargetPulse(int pulse) {
@@ -197,11 +214,11 @@ void setTargetPanel(int panel) {
 }
 
 int getDefaultPanel() {
-  return defaultPulse / PULSES_PER_PANEL;
+  return settings.defaultPulse / PULSES_PER_PANEL;
 }
 
 int getDefaultPulseOffset() {
-  return defaultPulse % PULSES_PER_PANEL;
+  return settings.defaultPulse % PULSES_PER_PANEL;
 }
 
 String stateToString(AppState state) {
@@ -224,15 +241,6 @@ String stateToString(AppState state) {
 
 void setCurrentState(AppState newState) {
   currentState = newState;
-}
-
-void saveDefaultPulse() {
-  EEPROM.put(0, defaultPulse); //TODO utiliser littlefs pour un fichier settings.json
-  EEPROM.commit();
-}
-
-void loadDefaultPulse() {
-  EEPROM.get(0, defaultPulse);
 }
 
 int getCurrentRpm() {
@@ -268,8 +276,8 @@ String doSetDefaultPulse(int pulse) {
   if (pulse < 0 || pulse >= PULSES_COUNT) {
     return "Error: default pulse " + String(pulse) + " out of bounds [0-" + String(PULSES_COUNT) + "]";
   }
-  defaultPulse = pulse;
-  return "Default pulse set to " + String(defaultPulse) + ". Default panel is " + String(getDefaultPanel()) + " with offset " + String(getDefaultPulseOffset());
+  settings.defaultPulse = pulse;
+  return "Default pulse set to " + String(settings.defaultPulse) + ". Default panel is " + String(getDefaultPanel()) + " with offset " + String(getDefaultPulseOffset());
 }
 
 String doSetDefaultPanelAndOffset(int panel, int offset) {
@@ -279,18 +287,18 @@ String doSetDefaultPanelAndOffset(int panel, int offset) {
   if (offset < 0 || offset >= PULSES_PER_PANEL) {
     return "Error: default offset " + String(offset) + " out of bounds [0-" + String(PULSES_PER_PANEL) + "]";  // TODO fonction pour checks bounds homogène
   }
-  defaultPulse = panel * PULSES_PER_PANEL + offset;
-  return "Default pulse set to " + String(defaultPulse) + ". Default panel is " + String(getDefaultPanel()) + " with offset " + String(getDefaultPulseOffset());
+  settings.defaultPulse = panel * PULSES_PER_PANEL + offset;
+  return "Default pulse set to " + String(settings.defaultPulse) + ". Default panel is " + String(getDefaultPanel()) + " with offset " + String(getDefaultPulseOffset());
 }
 
 String doSaveSettings() {
-  saveDefaultPulse();
-  return "Settings saved !";
+  settings.save();
+  return "Settings saved: " + settings.getContent();
 }
 
 String doLoadSettings() {
-  loadDefaultPulse();
-  return "Settings loaded !";
+  settings.load();
+  return "Settings loaded: " + settings.getContent();
 }
 
 String doGetDebug() {
@@ -344,7 +352,7 @@ String doReset() {
   calibrated = false;  // Reset all flags
   errorFlag = false;
   errorMessage = "";
-  loadDefaultPulse();  // Load config from EEPROM
+  settings.load();  // Reload settings
   return "Reset";
 }
 
@@ -543,7 +551,7 @@ void IRAM_ATTR handleEncoderInterrupt() {  // 4us
   if ((OPTICAL_DETECTED_EDGE == RISING && opticalLastState == LOW && opticalState == HIGH) ||
       (OPTICAL_DETECTED_EDGE == FALLING && opticalLastState == HIGH && opticalState == LOW)) {
     assertWarn(!calibrated || computePulsesMinDistance(0, encoderPulsesRaw) <= 1, [] {
-      return "Missing steps... Optical edge detected at pulse " + String(getCurrentPulse()) + " instead of " + String(defaultPulse);
+      return "Missing steps... Optical edge detected at pulse " + String(getCurrentPulse()) + " instead of " + String(settings.defaultPulse);
     });
     encoderPulsesRaw = 0;
     calibrated = true;
@@ -569,10 +577,75 @@ void notifyPanelChanges() {
   }
 }
 
+bool criticalError = false;
+String criticalMessage = "";
+
 void setup() {
   assert(!WiFi.getPersistent());
   Serial.begin(115200);
   Serial.setTimeout(10);  // TODO ça sert encore ça ?
+
+  // Load file system for settings and static served files
+  if (LittleFS.begin()) {
+    Serial.println("✅ LittleFS started");
+  } else {
+    Serial.println("❌ LittleFS error !");
+    criticalError = true;
+  }
+  
+  // Load settings
+  if (settings.load()) {
+    Serial.println("✅ Settings loaded: " + settings.getContent());
+  } else {
+    Serial.println("⚠️ Settings not found, using defaults: " + settings.getContent());
+  }
+
+  //Load http server and websockets
+  if (MDNS.begin(settings.mdnsName)) {
+    Serial.println("✅ mDNS started: " + settings.mdnsName + ".local");
+  } else {
+    Serial.println("⚠️ mDNS error !");
+  }
+  
+  cors.setOrigin("*");
+  server.addMiddleware(&cors);
+  server.addHandler(&ws);
+  server.begin();
+  Serial.println("✅ HTTP server started: http://" + WiFi.localIP().toString() + ":" + "PORT"); //TODO charger port depuis settings ? virer du constructeur
+  
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest* request) {
+    request->send(LittleFS, "/index.html", "text/html");
+  });
+
+#ifdef DEBUG_ENABLED
+  ws.onEvent([](AsyncWebSocket* server, AsyncWebSocketClient* client, AwsEventType type, void* arg, uint8_t* data, size_t len) {
+    if (type == WS_EVT_CONNECT) {
+      Serial.println("WebSocket client connected");
+    } else if (type == WS_EVT_DISCONNECT) {
+      Serial.println("WebSocket client disconnected");
+    }
+  });
+#endif
+
+  // Servo setup
+  if (servo.attach(SERVO_PIN) != 0) {
+    Serial.println("✅ Servo OK");
+    servo.write(STOP_SPEED);  // Servo stopped at start
+  } else {
+    Serial.println("❌ Servo error !");
+    criticalError = true;
+  }
+
+  // Optical sensor setup
+  pinMode(OPTICAL_PIN, INPUT);  // Configure le capteur optique en entrée
+  Serial.println("✅ Optical sensor OK");
+
+  // Encoder setup
+  pinMode(ENCODER_PIN_A, INPUT_PULLUP);
+  pinMode(ENCODER_PIN_B, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(ENCODER_PIN_A), handleEncoderInterrupt, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(ENCODER_PIN_B), handleEncoderInterrupt, CHANGE);
+  Serial.println("✅ Encoder OK");
 
   // Register Serial commands
   serialCommandHandler.registerCommand("stop", doStop);
@@ -592,6 +665,7 @@ void setup() {
   serialCommandHandler.registerCommand("incEncoder", [] { encoderPulsesRaw++; return ""; });
   serialCommandHandler.registerCommand("decEncoder", [] { encoderPulsesRaw--; return ""; });
 #endif
+  Serial.println("✅ Serial commands registered: " + String(serialCommandHandler.getCommandsCount()));
 
   // Register REST API routes
   restCommandHandler.registerCommand("stop", HTTP_GET, doStop);
@@ -607,58 +681,15 @@ void setup() {
   restCommandHandler.registerCommand<int>("setDefaultPulse", HTTP_POST, {"pulse"}, doSetDefaultPulse);
   restCommandHandler.registerCommand<int, int>("setDefaultPanelAndOffset", HTTP_POST, {"panel", "offset"}, doSetDefaultPanelAndOffset);
   restCommandHandler.registerCommand("help", HTTP_GET, doGetRestRoutes);
-
-  cors.setOrigin("*");
-  server.addMiddleware(&cors);
-  server.addHandler(&ws);
-  server.begin();
-  Serial.println("HTTP server started");
-
-  if (!LittleFS.begin()) {
-    Serial.println("Erreur lors du montage de LittleFS !");
-    return; //TODO return ici inutile car la boucle va démarrer et faire son job. On devrait lever un flag qui empeche la boucle de tourner
-  }
-
-  server.on("/", HTTP_GET, [](AsyncWebServerRequest* request) {
-    request->send(LittleFS, "/index.html", "text/html");
-  });
-
-  if (MDNS.begin("cff")) {
-    Serial.println("mDNS démarré avec succès !");
-  } else {
-    Serial.println("Erreur lors de l'initialisation de mDNS");
-  }
-
-// WebSocket setup
-#ifdef DEBUG_ENABLED
-  ws.onEvent([](AsyncWebSocket* server, AsyncWebSocketClient* client, AwsEventType type, void* arg, uint8_t* data, size_t len) {
-    if (type == WS_EVT_CONNECT) {
-      Serial.println("WebSocket client connected");
-    } else if (type == WS_EVT_DISCONNECT) {
-      Serial.println("WebSocket client disconnected");
-    }
-  });
-#endif
-
-  // Read setup values from EEPROM
-  EEPROM.begin(8);
-  loadDefaultPulse();
-
-  // Servo setup
-  servo.attach(SERVO_PIN);
-  servo.write(STOP_SPEED);  // Ensure the servo starts stopped using the centralized function
-
-  // Optical sensor setup
-  pinMode(OPTICAL_PIN, INPUT);  // Configure le capteur optique en entrée
-
-  // Encoder setup
-  pinMode(ENCODER_PIN_A, INPUT_PULLUP);
-  pinMode(ENCODER_PIN_B, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(ENCODER_PIN_A), handleEncoderInterrupt, CHANGE);
-  attachInterrupt(digitalPinToInterrupt(ENCODER_PIN_B), handleEncoderInterrupt, CHANGE);
+  Serial.println("✅ API routes registered: " + String(restCommandHandler.getRoutesCount()));
 }
 
 void loop() {
+  if (criticalError) {
+    delay(1000);
+    return;
+  }
+
   // Keep connections alive
   connectToWiFi();  // TODO Wifi non bloquant + voir si problèmes en cas de déconnexion avec le serveur http ou autre
   MDNS.update();

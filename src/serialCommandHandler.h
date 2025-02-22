@@ -93,6 +93,10 @@ class SerialCommandHandler {
     }, paramNames };
   }
 
+  int getCommandsCount() {
+    return _commandCallbacks.size();
+  }
+
   String getCommandsList() const {
     String list = "";
     for (const auto& command : _commandCallbacks) {
