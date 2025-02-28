@@ -7,6 +7,9 @@
 
 ### TODO SOFTWARE :
 ```
+ TODO virer les deps inutiles (CRC32 utilisé par librairie)
+ TODO voir pour les conflits avec dépendances de command-library
+ TODO projet de test unitaire ?
  TODO ça semble se mettre en veille au bout d'un moment...... mais ça semble réglé
  TODO réorganiser la détection d'erreurs.
 - on a emergencyStop et assertThis un peu interchangeables
