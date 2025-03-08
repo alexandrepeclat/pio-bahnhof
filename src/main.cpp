@@ -90,6 +90,7 @@ AsyncCorsMiddleware cors;
 AsyncWebSocket ws("/panel");
 bool errorFlag = false;    // Emergency stop flag
 String errorMessage = "";  // Emergency stop message
+bool criticalError = false; // Error preventing the device from running //TODO merger avec errorFlag ? 
 volatile AppState currentState = STOPPED;
 volatile bool calibrated = false;
 SerialCommandHandler serialCommandHandler;
@@ -102,8 +103,8 @@ int targetPulse = 0;
 volatile int encoderPulsesRaw = 0;
 
 // Optical sensor
-const int OPTICAL_DETECTED_EDGE = RISING;  // Capteur à 1 quand coupé / 0 quand trou / ralentit quand trou, et calibre sur rising vers coupé
-volatile bool opticalState = HIGH;         // Assume not on slot
+const int OPTICAL_DETECTED_EDGE = RISING;  // Optical is 0 on slot (detected) and 1 when signal cut by wheel body
+volatile bool opticalState = HIGH;         // Assume not on slot at start (will be updated on 1st loop)
 
 // Servo
 Servo servo;
@@ -122,10 +123,14 @@ volatile int encoderInterruptCallCount = 0;
 volatile int opticalDetectedEdgesCount = 0;
 #endif
 
+/**
+ * Configurable settings stored in flash memory.
+ * Values can be preset by flashing a settings.json file in the device.
+ */
 class Settings : public JsonSettingsBase {
  public:
-  int defaultPulse = 0;
-  String mdnsName = "cff";
+  int defaultPulse = 0; //Default pulse for the device : 0
+  String mdnsName = "cff"; //Default MDNS name for the device : cff.local
 
   Settings()
       : JsonSettingsBase("/settings.json") {}
@@ -576,9 +581,6 @@ void notifyPanelChanges() {
     lastPanel = currentPanel;
   }
 }
-
-bool criticalError = false;
-String criticalMessage = "";
 
 void setup() {
   assert(!WiFi.getPersistent());
