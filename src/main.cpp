@@ -125,7 +125,7 @@ volatile int opticalDetectedEdgesCount = 0;
 
 /**
  * Configurable settings stored in flash memory.
- * Values can be preset by flashing a settings.json file in the device.
+ * Values can be preset by flashing a settings.json file on the ESP.
  */
 class Settings : public JsonSettingsBase {
  public:
