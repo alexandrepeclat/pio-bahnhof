@@ -94,12 +94,12 @@ volatile bool calibrated = false;
 // Panels and pulses
 const int PANELS_COUNT = 62;
 const int PULSES_PER_PANEL = 24;                           // ENCODER_RESOLUTION / ENCODER_GEAR_TEETH * ENCODER_PULSES_PER_STEP = 360 / 60 * 4 = 24
-const int PULSES_COUNT = PANELS_COUNT * PULSES_PER_PANEL;  // Nombre total d'impulsions
+const int PULSES_COUNT = PANELS_COUNT * PULSES_PER_PANEL;
 const int TARGET_PULSE_OFFSET = 12;                        // When setting a target panel, use the nth pulse of this panel for centering //TODO à voir si configurable (et vitesse aussi car dépend de elle)
 static_assert(TARGET_PULSE_OFFSET >= 0 && TARGET_PULSE_OFFSET < PULSES_PER_PANEL, "OFFSET must be in range [0-PULSES_PER_PANEL]");
 
 // Encoder
-const int8_t ENCODER_DIRECTION_SIGN = 1;
+const int8_t ENCODER_DIRECTION_SIGN = 1; // 1 for normal direction, -1 for reverse (depends on AB wiring)
 const int8_t ENCODER_STATE_TABLE[16] = {0, 1, -1, -0, -1, 0, -0, 1, 1, -0, 0, -1, -0, -1, 1, 0};  // Encoder state table for natural debouncing (-0 are non valid states)
 int targetPulse = 0;
 volatile int encoderPulsesRaw = 0;
@@ -110,8 +110,8 @@ volatile bool opticalState = HIGH;         // Assume not on slot at start (will 
 
 // Servo
 Servo servo;
-const int STOP_SPEED = 90;  // Valeur pour arrêter le servo
-const int RUN_SPEED = 140;  // Vitesse du servo pour avancer (91-180) 140 c'est bien (met 6 secondes à faire un tour)
+const int STOP_SPEED = 90;  
+const int RUN_SPEED = 140;  // Servo max forward speed [91-180] (140 is quite good, 6 sec for 1 revolution)
 static_assert(RUN_SPEED > 90, "RUN_SPEED must be greater than 90 or everything will break !");
 
 /**
