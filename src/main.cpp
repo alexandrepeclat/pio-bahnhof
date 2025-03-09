@@ -111,17 +111,6 @@ Servo servo;
 const int STOP_SPEED = 90;  // Valeur pour arrêter le servo
 const int RUN_SPEED = 140;  // Vitesse du servo pour avancer (91-180) 140 c'est bien (met 6 secondes à faire un tour)
 static_assert(RUN_SPEED > 90, "RUN_SPEED must be greater than 90 or everything will break !");
-const unsigned long BLOCKAGE_TIMEOUT = 250;          // Timeout (ms) between blockage detection checks
-const unsigned long BLOCKAGE_TIMEOUT_WARMUP = 1000;  // Time to wait before starting blockage detection when motor is starting //TODO revoir ces valeurs et celui-ci pourrait être moins
-const int BLOCKAGE_RPM_AT_MAX_SPEED = 10;            // Expected RPM (panels) when servo is at max speed
-const float BLOCKAGE_RPM_TOLERANCE = 0.90;           // Tolerance for blockage detection speed
-float blockageActualRPM = 0.0;
-float blockageExpectedRPM = 0.0;
-
-#ifdef DEBUG_ENABLED
-volatile int encoderInterruptCallCount = 0;
-volatile int opticalDetectedEdgesCount = 0;
-#endif
 
 /**
  * Configurable settings stored in flash memory.
@@ -159,14 +148,8 @@ std::vector<DebugField> debugFields = {
   {"dfltPulse", true, [] { return settings.defaultPulse; }},
   {"dfltPanel", false, [] { return getDefaultPanel(); }},
   {"dfltPulseOffset", false, [] { return getDefaultPulseOffset(); }},
-#ifdef DEBUG_ENABLED
   {"rpm", false, [] { return getCurrentRpm(); }},
-  {"bActRpm", false, [] { return blockageActualRPM; }},
-  {"bExpRpm", false, [] { return blockageExpectedRPM; }},
   {"encPulsesRaw", false, [] { return encoderPulsesRaw; }},
-  {"optEdgeCount", true, [] { return opticalDetectedEdgesCount; }},
-  {"encIntCount", false, [] { return encoderInterruptCallCount; }},
-#endif
   {"wsClients", true, [] { return ws.count(); }},
   {"state", true, [] { return stateToString(currentState); }},
   {"errorMessage", true, [] { return errorMessage; }},
@@ -541,9 +524,6 @@ void IRAM_ATTR handleEncoderInterrupt() {  // 4us
   encoderState = ((encoderState << 2) | (pinA << 1) | pinB) & 15;  // Décale et masque les bits
   int8_t pulseInc = ENCODER_STATE_TABLE[encoderState] * ENCODER_DIRECTION_SIGN;
   encoderPulsesRaw += pulseInc;
-#ifdef DEBUG_ENABLED
-  encoderInterruptCallCount++;
-#endif
 
   // Stop here if the encoder did not move forward
   if (pulseInc < 1)
@@ -560,9 +540,6 @@ void IRAM_ATTR handleEncoderInterrupt() {  // 4us
     });
     encoderPulsesRaw = 0;
     calibrated = true;
-#ifdef DEBUG_ENABLED
-    opticalDetectedEdgesCount++;
-#endif
   }
   opticalLastState = opticalState;
 
@@ -663,10 +640,6 @@ void setup() {
   serialCommandHandler.registerCommand<int>("setDefaultPulse", {"pulse"}, doSetDefaultPulse);
   serialCommandHandler.registerCommand<int, int>("setDefaultPanelAndOffset", {"panel", "offset"}, doSetDefaultPanelAndOffset);
   serialCommandHandler.registerCommand("help", doGetSerialCommands);
-#ifdef DEBUG_ENABLED
-  serialCommandHandler.registerCommand("incEncoder", [] { encoderPulsesRaw++; return ""; });
-  serialCommandHandler.registerCommand("decEncoder", [] { encoderPulsesRaw--; return ""; });
-#endif
   Serial.println("✅ Serial commands registered: " + String(serialCommandHandler.getCommandsCount()));
 
   // Register REST API routes
