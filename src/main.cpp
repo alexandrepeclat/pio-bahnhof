@@ -77,24 +77,26 @@ int computeRpm(int lastPulse, int currentPulse, unsigned long lastTime, unsigned
 #define ENCODER_PIN_B D7  // White
 #define OPTICAL_PIN D4    // Orange
 
+// Connections
+AsyncWebServer server(80);  // For REST API calls
+AsyncCorsMiddleware cors;
+AsyncWebSocket ws("/panel");  // For notifying clients of panel changes
+SerialCommandHandler serialCommandHandler;
+RestCommandHandler restCommandHandler(server);
+
+// App state
+volatile AppState currentState = STOPPED;
+bool errorFlag = false;      // Emergency stop flag
+String errorMessage = "";    // Emergency stop message
+bool criticalError = false;  // Error preventing the device from running //TODO merger avec errorFlag ?
+volatile bool calibrated = false;
+
 // Panels and pulses
 const int PANELS_COUNT = 62;
 const int PULSES_PER_PANEL = 24;                           // ENCODER_RESOLUTION / ENCODER_GEAR_TEETH * ENCODER_PULSES_PER_STEP = 360 / 60 * 4 = 24
 const int PULSES_COUNT = PANELS_COUNT * PULSES_PER_PANEL;  // Nombre total d'impulsions
 const int TARGET_PULSE_OFFSET = 12;                        // When setting a target panel, use the nth pulse of this panel for centering //TODO à voir si configurable (et vitesse aussi car dépend de elle)
 static_assert(TARGET_PULSE_OFFSET >= 0 && TARGET_PULSE_OFFSET < PULSES_PER_PANEL, "OFFSET must be in range [0-PULSES_PER_PANEL]");
-
-// Globals
-AsyncWebServer server(80);
-AsyncCorsMiddleware cors;
-AsyncWebSocket ws("/panel");
-bool errorFlag = false;    // Emergency stop flag
-String errorMessage = "";  // Emergency stop message
-bool criticalError = false; // Error preventing the device from running //TODO merger avec errorFlag ? 
-volatile AppState currentState = STOPPED;
-volatile bool calibrated = false;
-SerialCommandHandler serialCommandHandler;
-RestCommandHandler restCommandHandler(server);
 
 // Encoder
 const int8_t ENCODER_DIRECTION_SIGN = 1;
@@ -118,8 +120,8 @@ static_assert(RUN_SPEED > 90, "RUN_SPEED must be greater than 90 or everything w
  */
 class Settings : public JsonSettingsBase {
  public:
-  int defaultPulse = 0; //Default pulse for the device : 0
-  String mdnsName = "cff"; //Default MDNS name for the device : cff.local
+  int defaultPulse = 0;     // Default pulse for the device : 0
+  String mdnsName = "cff";  // Default MDNS name for the device : cff.local
 
   Settings()
       : JsonSettingsBase("/settings.json") {}
@@ -136,23 +138,27 @@ class Settings : public JsonSettingsBase {
 };
 Settings settings;
 
+/**
+ * Debug fields are displayed via serial and can be queried via REST API.
+ * (fields with parameter "true" trigger a serial print when they change)
+ */
 std::vector<DebugField> debugFields = {
-  {"currentPanel", false, [] { return getCurrentPanel(); }},
-  {"currentPulse", true, [] { return getCurrentPulse(); }},
-  {"targetPanel", false, [] { return getTargetPanel(); }},
-  {"targetPulse", true, [] { return getTargetPulse(); }},
-  {"optical", true, [] { return opticalState; }},
-  {"calibrated", true, [] { return calibrated; }},
-  {"dist", false, [] { return getRemainingPulses(); }},
-  {"servo", true, [] { return servo.read(); }},  // TODO à voir parfois une valeur ne change pas mais le hash est différent (se produit dans les états ou le servo tourne)
-  {"dfltPulse", true, [] { return settings.defaultPulse; }},
-  {"dfltPanel", false, [] { return getDefaultPanel(); }},
-  {"dfltPulseOffset", false, [] { return getDefaultPulseOffset(); }},
-  {"rpm", false, [] { return getCurrentRpm(); }},
-  {"encPulsesRaw", false, [] { return encoderPulsesRaw; }},
-  {"wsClients", true, [] { return ws.count(); }},
-  {"state", true, [] { return stateToString(currentState); }},
-  {"errorMessage", true, [] { return errorMessage; }},
+    {"currentPanel", false, [] { return getCurrentPanel(); }},
+    {"currentPulse", true, [] { return getCurrentPulse(); }},
+    {"targetPanel", false, [] { return getTargetPanel(); }},
+    {"targetPulse", true, [] { return getTargetPulse(); }},
+    {"optical", true, [] { return opticalState; }},
+    {"calibrated", true, [] { return calibrated; }},
+    {"dist", false, [] { return getRemainingPulses(); }},
+    {"servo", true, [] { return servo.read(); }},  // TODO à voir parfois une valeur ne change pas mais le hash est différent (se produit dans les états ou le servo tourne)
+    {"dfltPulse", true, [] { return settings.defaultPulse; }},
+    {"dfltPanel", false, [] { return getDefaultPanel(); }},
+    {"dfltPulseOffset", false, [] { return getDefaultPulseOffset(); }},
+    {"rpm", false, [] { return getCurrentRpm(); }},
+    {"encPulsesRaw", false, [] { return encoderPulsesRaw; }},
+    {"wsClients", true, [] { return ws.count(); }},
+    {"state", true, [] { return stateToString(currentState); }},
+    {"errorMessage", true, [] { return errorMessage; }},
 };
 DebugBuilder debugBuilder(debugFields);
 
@@ -173,6 +179,28 @@ void emergencyStop(String message) {
   errorFlag = true;         // Error flag will prevent the motor to run, until manually reset
   setCurrentState(EMERGENCY_STOPPED);
   errorMessage = message;
+}
+
+String stateToString(AppState state) {
+  switch (state) {
+    case EMERGENCY_STOPPED:
+      return "EMERGENCY_STOPPED";
+    case STOPPED:
+      return "STOPPED";
+    case CALIBRATING:
+      return "CALIBRATING";
+    case AUTO_CALIBRATING:
+      return "AUTO_CALIBRATING";
+    case MOVING_TO_TARGET:
+      return "MOVING_TO_TARGET";
+    case MOVING_TO_TARGET_SLOW:
+      return "MOVING_TO_TARGET_SLOW";
+  }
+  return "UNKNOWN_STATE";  // Not reachable
+}
+
+void setCurrentState(AppState newState) {
+  currentState = newState;
 }
 
 int IRAM_ATTR getCurrentPulse() {
@@ -209,26 +237,28 @@ int getDefaultPulseOffset() {
   return settings.defaultPulse % PULSES_PER_PANEL;
 }
 
-String stateToString(AppState state) {
-  switch (state) {
-    case EMERGENCY_STOPPED:
-      return "EMERGENCY_STOPPED";
-    case STOPPED:
-      return "STOPPED";
-    case CALIBRATING:
-      return "CALIBRATING";
-    case AUTO_CALIBRATING:
-      return "AUTO_CALIBRATING";
-    case MOVING_TO_TARGET:
-      return "MOVING_TO_TARGET";
-    case MOVING_TO_TARGET_SLOW:
-      return "MOVING_TO_TARGET_SLOW";
-  }
-  return "UNKNOWN_STATE";  // Not reachable
+/**
+ * Compute the distance between two pulses, only in forward direction.
+ */
+int IRAM_ATTR computePulsesForwardDistance(int from, int to) {
+  return (to - from + PULSES_COUNT) % PULSES_COUNT;
 }
 
-void setCurrentState(AppState newState) {
-  currentState = newState;
+/**
+ * Compute the minimum distance between two pulses, either forward or backward.
+ */
+int IRAM_ATTR computePulsesMinDistance(int from, int to) {
+  int distance = computePulsesForwardDistance(from, to);
+  return min(distance, PULSES_COUNT - distance);
+}
+
+int getRemainingPulses() {
+  int currentPulse = getCurrentPulse();
+  return computePulsesForwardDistance(currentPulse, targetPulse);
+}
+
+bool isTargetPulseReached() {
+  return getRemainingPulses() == 0;
 }
 
 int getCurrentRpm() {
@@ -250,7 +280,41 @@ int computeRpm(int lastPulse, int currentPulse, unsigned long lastTime, unsigned
   return (pulsesDelta * 60000.0) / (elapsedTime * PULSES_COUNT);
 }
 
-// Functions
+/**
+ * Securely set the motor speed within boundaries, based on normalized value.
+ * Will set the motor to STOP_SPEED if an error was raised.
+ * @param normalizedSpeed The speed value between 0 and 1
+ */
+void setMotorSpeed(float normalizedSpeed) {
+  // If error was raised, stop the motor
+  if (errorFlag) {
+    servo.write(STOP_SPEED);
+    return;
+  }
+
+  // Constrain normalized speed and map it to servo speed values
+  normalizedSpeed = constrain(normalizedSpeed, 0.f, 1.f);
+  int speed = denormalizeSpeed(normalizedSpeed);
+  if (servo.read() != speed) {
+    servo.write(speed);  // Skip if speed did not change (~20ms)
+  }
+}
+
+/**
+ * Normalize a speed value between STOP_SPEED and RUN_SPEED to a value between 0 and 1.
+ */
+float normalizeSpeed(int speed) {
+  return map(speed, STOP_SPEED, RUN_SPEED, 0, 100) / 100.f;
+}
+
+/**
+ * Denormalize a speed value between 0 and 1 to a value between STOP_SPEED and RUN_SPEED.
+ */
+int denormalizeSpeed(float normalizedSpeed) {
+  return map(normalizedSpeed * 100, 0, 100, STOP_SPEED, RUN_SPEED);
+}
+
+// Commands called by serial or REST API
 
 String doGetRestRoutes() {
   return restCommandHandler.getRoutesList();
@@ -342,24 +406,6 @@ String doReset() {
   errorMessage = "";
   settings.load();  // Reload settings
   return "Reset";
-}
-
-int IRAM_ATTR computePulsesForwardDistance(int from, int to) {
-  return (to - from + PULSES_COUNT) % PULSES_COUNT;
-}
-
-int IRAM_ATTR computePulsesMinDistance(int from, int to) {
-  int distance = computePulsesForwardDistance(from, to);
-  return min(distance, PULSES_COUNT - distance);
-}
-
-int getRemainingPulses() {
-  int currentPulse = getCurrentPulse();
-  return computePulsesForwardDistance(currentPulse, targetPulse);
-}
-
-bool isTargetPulseReached() {
-  return getRemainingPulses() == 0;
 }
 
 float calculateSpeedCalibration() {
@@ -471,41 +517,13 @@ void connectToWiFi() {
   }
 }
 
+/**
+ * Check for errors during motor operation such as blockages or speed out of bounds.
+ */
 void checkForRunningErrors() {
   int motorSpeed = servo.read();
 
-  // static unsigned long lastCheckTime = 0;  // TODO marche pas bien détecte faux positifs lors d'accélérations décélérations
-  // static int lastEncoder = 0;
-  // static unsigned long warmupTimeout = BLOCKAGE_TIMEOUT_WARMUP;
-
-  // if (motorSpeed > STOP_SPEED) {
-  //   unsigned long currentTime = millis();                     // Temps actuel
-  //   unsigned long elapsedTime = currentTime - lastCheckTime;  // Temps écoulé depuis la dernière vérification
-
-  //   if (elapsedTime > BLOCKAGE_TIMEOUT + warmupTimeout) {
-  //     int currentPulse = getCurrentPulse();
-  //     blockageExpectedRPM = BLOCKAGE_RPM_AT_MAX_SPEED * normalizeSpeed(motorSpeed) * BLOCKAGE_RPM_TOLERANCE;
-  //     blockageActualRPM = computeRpm(lastEncoderPulse, currentPulse, lastCheckTime, currentTime);
-  //     if (blockageActualRPM < blockageExpectedRPM) {
-  //       emergencyStop("Blockage detected: motorSpeed=" + String(motorSpeed)    //
-  //                     + " blockageActualRPM=" + String(blockageActualRPM)      //
-  //                     + " blockageExpectedRPM=" + String(blockageExpectedRPM)  //
-  //                     + " lastEncoderPulse=" + String(lastEncoderPulse)      //
-  //                     + " currentPulse=" + String(currentPulse)              //
-  //                     + " elapsedTime=" + String(elapsedTime));
-  //     }
-
-  //     // Mettre à jour les valeurs de référence
-  //     lastCheckTime = currentTime;
-  //     lastEncoderPulse = currentPulse;
-  //     warmupTimeout = 0l;  // No warmup before next checks
-  //   }
-  // } else {
-  //   // Réinitialise les valeurs quand le moteur est à l’arrêt
-  //   lastCheckTime = millis();
-  //   lastEncoderPulse = getCurrentPulse();
-  //   warmupTimeout = BLOCKAGE_TIMEOUT_WARMUP;  // Set warmup for next motor start before checks
-  // }
+  // TODO Check for blockages
 
   // Detect motor speed out of bounds
   if (motorSpeed < 90) {
@@ -550,6 +568,9 @@ void IRAM_ATTR handleEncoderInterrupt() {  // 4us
   }
 }
 
+/**
+ * Notify websocket clients on panel changes.
+ */
 void notifyPanelChanges() {
   static int lastPanel = -1;
   int currentPanel = getCurrentPanel();
@@ -571,7 +592,7 @@ void setup() {
     Serial.println("❌ LittleFS error !");
     criticalError = true;
   }
-  
+
   // Load settings
   if (settings.load()) {
     Serial.println("✅ Settings loaded: " + settings.getContent());
@@ -579,32 +600,22 @@ void setup() {
     Serial.println("⚠️ Settings not found, using defaults: " + settings.getContent());
   }
 
-  //Load http server and websockets
+  // Load http server and websockets
   if (MDNS.begin(settings.mdnsName)) {
     Serial.println("✅ mDNS started: " + settings.mdnsName + ".local");
   } else {
     Serial.println("⚠️ mDNS error !");
   }
-  
+
   cors.setOrigin("*");
   server.addMiddleware(&cors);
   server.addHandler(&ws);
   server.begin();
-  Serial.println("✅ HTTP server started: http://" + WiFi.localIP().toString() + ":" + "PORT"); //TODO charger port depuis settings ? virer du constructeur
-  
+  Serial.println("✅ HTTP server started: http://" + WiFi.localIP().toString() + ":" + "PORT");  // TODO charger port depuis settings ? virer du constructeur
+
   server.on("/", HTTP_GET, [](AsyncWebServerRequest* request) {
     request->send(LittleFS, "/index.html", "text/html");
   });
-
-#ifdef DEBUG_ENABLED
-  ws.onEvent([](AsyncWebSocket* server, AsyncWebSocketClient* client, AwsEventType type, void* arg, uint8_t* data, size_t len) {
-    if (type == WS_EVT_CONNECT) {
-      Serial.println("WebSocket client connected");
-    } else if (type == WS_EVT_DISCONNECT) {
-      Serial.println("WebSocket client disconnected");
-    }
-  });
-#endif
 
   // Servo setup
   if (servo.attach(SERVO_PIN) != 0) {
@@ -686,38 +697,4 @@ void loop() {
     Serial.println(debugBuilder.buildJson());
   }
 #endif
-}
-
-/**
- * Securely set the motor speed within boundaries, based on normalized value.
- * Will set the motor to STOP_SPEED if an error was raised.
- * @param normalizedSpeed The speed value between 0 and 1
- */
-void setMotorSpeed(float normalizedSpeed) {
-  // If error was raised, stop the motor
-  if (errorFlag) {
-    servo.write(STOP_SPEED);
-    return;
-  }
-
-  // Constrain normalized speed and map it to servo speed values
-  normalizedSpeed = constrain(normalizedSpeed, 0.f, 1.f);
-  int speed = denormalizeSpeed(normalizedSpeed);
-  if (servo.read() != speed) {
-    servo.write(speed);  // Skip if speed did not change (~20ms)
-  }
-}
-
-/**
- * Normalize a speed value between STOP_SPEED and RUN_SPEED to a value between 0 and 1.
- */
-float normalizeSpeed(int speed) {
-  return map(speed, STOP_SPEED, RUN_SPEED, 0, 100) / 100.f;
-}
-
-/**
- * Denormalize a speed value between 0 and 1 to a value between STOP_SPEED and RUN_SPEED.
- */
-int denormalizeSpeed(float normalizedSpeed) {
-  return map(normalizedSpeed * 100, 0, 100, STOP_SPEED, RUN_SPEED);
 }
