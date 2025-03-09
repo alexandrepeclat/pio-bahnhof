@@ -257,10 +257,6 @@ int getRemainingPulses() {
   return computePulsesForwardDistance(currentPulse, targetPulse);
 }
 
-bool isTargetPulseReached() {
-  return getRemainingPulses() == 0;
-}
-
 int getCurrentRpm() {
   static int lastPulse = 0;
   static unsigned long lastTime = 0;
@@ -461,13 +457,13 @@ void evaluateStateTransitions() {
       if (!calibrated) {
         setCurrentState(AUTO_CALIBRATING);
       }
-      if (isTargetPulseReached()) {
+      if (getRemainingPulses() == 0) {
         setCurrentState(STOPPED);
       }
       break;
     }
     case MOVING_TO_TARGET_SLOW: {
-      if (isTargetPulseReached()) {
+      if (getRemainingPulses() == 0) {
         setCurrentState(STOPPED);
       }
       break;
@@ -512,8 +508,7 @@ void connectToWiFi() {
       delay(1000);
       Serial.println("Connecting to WiFi " + WiFi.SSID() + "...");
     }
-    Serial.println("Connected to WiFi " + WiFi.SSID() + "!");
-    Serial.println("IP Address: " + WiFi.localIP().toString() + " RSSI: " + WiFi.RSSI());
+    Serial.println("✅ Connected to WiFi " + WiFi.SSID() + " IP Address: " + WiFi.localIP().toString() + " RSSI: " + WiFi.RSSI());
   }
 }
 
@@ -612,6 +607,7 @@ void setup() {
   server.addHandler(&ws);
   server.begin();
   Serial.println("✅ HTTP server started: http://" + WiFi.localIP().toString() + ":" + "PORT");  // TODO charger port depuis settings ? virer du constructeur
+  Serial.println("✅ WS server started: ws://" + WiFi.localIP().toString() + ws.url()); 
 
   server.on("/", HTTP_GET, [](AsyncWebServerRequest* request) {
     request->send(LittleFS, "/index.html", "text/html");
