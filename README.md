@@ -9,15 +9,13 @@
 ```
  TODO virer les deps inutiles (CRC32 utilisé par librairie)
  TODO voir pour les conflits avec dépendances de command-library
- TODO projet de test unitaire ?
- TODO ça semble se mettre en veille au bout d'un moment...... mais ça semble réglé
  TODO réorganiser la détection d'erreurs.
 - on a emergencyStop et assertThis un peu interchangeables
 - on a des checks sur des getters ou à des moments dans la logique du code et dans les fonctions dédiées...
 - le state, flag et message sont un peu redondants
+ TODO passer les strings en mémoire flash plutôt qu'en RAM 
  TODO s'assurer que tous les "getters" utilisés notamment dans les debug ne change pas les états ou valeurs :-)
  TODO Vérifier les valeurs passées depuis l'api un peu mieux en terme de limites
- TODO API pour donner la liste des villes ? Dépend du matos après-tout par contre on va pas fournir les traductions pour la reconnaissance vocale ?
  TODO sécuriser API ?
 ```
 
