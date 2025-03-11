@@ -46,6 +46,10 @@
 | MG996R      | Continuous rotation servo motor              | 4.8-6.6V |        | https://www.towerpro.com.tw/product/mg996r                     |
 | KY-010      | Optical sensor                               | 3.3-5V   |        | https://sensorkit.joy-it.net/fr/sensorsky-010                  |
 
+![Breadboard scheme](refs/electronics_bb.svg)
+![Electro scheme](refs/electronics_scheme.svg)
+
+
 ### Mechanical stuff
 
 https://geargenerator.com/beta/#hk3pLkIpT1P$9k5L5mjM4YitFARO9K3T5M8U4yJl4H8tBo4McAjLb9iubwjmh9Cub5pTchRmcYpu7AROJcRNgD3tKqeNHM3WisjGvXcw6DQBUl1fZZkQOW5HZKNNzp3rGI1YZ$7LastDekNFMcbxdNVGW7Z1knDcZkTHZKQoYbuqFSH2Y25WZJh$WVwuaH@FJE3
