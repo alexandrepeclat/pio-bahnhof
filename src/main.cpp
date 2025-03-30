@@ -1,3 +1,5 @@
+#define DEBUG_ENABLED
+
 #include <DebugBuilder.h>
 #include <EEPROM.h>
 #include <ESP8266WiFi.h>
@@ -358,7 +360,7 @@ String doGetCurrentPanel() {
 }
 
 String doMoveToPanel(int panel) {
-  if (panel > PANELS_COUNT) {
+  if (panel >= PANELS_COUNT) {
     return "Panel " + String(panel) + " out of bounds [0-" + String(PANELS_COUNT) + "]";
   }
   setTargetPanel(panel);

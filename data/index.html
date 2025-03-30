@@ -6,15 +6,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CFF Flip</title>
     <style type="text/css">
+        body {
+            background-color: #f0f0f0;
+            font-family: Arial, sans-serif;
+            color: #333;
+        }
 
         #citySelect {
-            background-color:darkblue;
-            color:white;
+            background-color: darkblue;
+            color: white;
             border: 2px solid black;
             font-size: 2rem;
             font-family: sans-serif;
+            max-width: 100%;
         }
-
     </style>
     <script>
         const cities = [
@@ -81,8 +86,6 @@
             { name: 'Stuttgart', keywords: ['stuttgart'] },
             { name: 'Vide', keywords: ['vide', 'empty'] }
         ];
-
-
 
         document.addEventListener('DOMContentLoaded', () => {
             const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
@@ -154,7 +157,6 @@
             const ws = new WebSocket(WS_BASE_URL);
             ws.onmessage = (event) => {
                 const panelNumber = event.data;
-                document.getElementById('currentPanelDisplay').textContent = `Current Panel: ${panelNumber}`;
                 updateCitySelect(panelNumber);
             };
 
@@ -177,10 +179,10 @@
     <div class="container">
         <h1>CFF Flip</h1>
 
-        <label for="citySelect">Select a city:</label>
         <select id="citySelect" onchange="moveToPanelByCity()">
             <!-- Options will be populated by JavaScript -->
         </select>
+        <br /><br />
         <button id="pttButton">Push to Talk</button>
         <button id="toggleButton">Start Recognition</button>
 
@@ -205,24 +207,25 @@
 
         <h2>Settings</h2>
         <label for="inDefaultPulse">Default pulse</label>
-        <input type="number" id="inDefaultPulse" placeholder="Enter Pulse Offset" value="289" onchange="setDefaultPulse()">
-        <br/><br/>
+        <input type="number" id="inDefaultPulse" placeholder="Enter Pulse Offset" value="289"
+            onchange="setDefaultPulse()">
+        <br /><br />
         <label for="inDefaultPanel">Default panel/offset</label>
-        <input type="number" id="inDefaultPanel" placeholder="Enter panel" value="12" onchange="setDefaultPanelAndOffset()">
-        <input type="number" id="inDefaultOffset" placeholder="Enter offset" value="1" onchange="setDefaultPanelAndOffset()">
-        <br/><br/>
+        <input type="number" id="inDefaultPanel" placeholder="Enter panel" value="12"
+            onchange="setDefaultPanelAndOffset()">
+        <input type="number" id="inDefaultOffset" placeholder="Enter offset" value="1"
+            onchange="setDefaultPanelAndOffset()">
+        <br /><br />
         <button onclick="saveSettings()">saveSettings</button>
         <button onclick="loadSettings()">loadSettings</button>
         <button onclick="help()">Help</button>
 
-        <pre id="responseMessage" style="white-space:wrap;word-break:break-word;">
-        </pre>
-        <div id="currentPanelDisplay">Current Panel: </div>
+        <pre id="responseMessage" style="white-space:wrap;word-break:break-word;"></pre>
     </div>
 
     <script>
-        const WS_BASE_URL = 'ws://192.168.0.148/panel'
-        const REST_BASE_URL = 'http://192.168.0.148';
+        const WS_BASE_URL = 'ws://cff.local/panel'
+        const REST_BASE_URL = 'http://cff.local';
 
         // Populate the select element with city options
         const citySelect = document.getElementById('citySelect');
@@ -374,6 +377,8 @@
         function help() {
             apiRequest('/help');
         }
+
+        loadSettings();
     </script>
 </body>
 
