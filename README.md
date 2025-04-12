@@ -1,10 +1,3 @@
-### TODO MECANIQUE :
-```
-- Fixation roue encodeur : rondelle <0.8mm ?
-- Fixation roue optique : 3x rondelles 16mm/0.8mm
-- Espacer les roues imprimées de 0.1-2mm (ou les diminuer de taille) pour avoir une tolérance ?
-```
-
 ### TODO SOFTWARE :
 ```
  TODO virer les deps inutiles (CRC32 utilisé par librairie)
@@ -77,9 +70,17 @@ curl -Method Post -Uri "http://192.168.0.222/setCurrentPanel" -Body @{panel=0} -
 ```
 
 ### Useful doc
-
+- Split flap wall decoration SBB/CFF : https://commerce.sbb.ch/en/split-flap-display-wall-decoration-different-special-trains-1100.html
+- Projet split flap diy : https://github.com/davidkingsman/split-flap
 - Lib encoder esp32 (multi modes dont quadrature, avec interruptions) : https:github.com/madhephaestus/ESP32Encoder 
 - Exemple encoder (pas quadrature mais directionnel) : https:github.com/sandy9159/How-to-connect-optical-rotary-encoder-with-Arduino
+- Lib encodeur RPi Pico : https://github.com/GitJer/Some_RPI-Pico_stuff/tree/main/Rotary_encoder
+- Lib encodeur interruptions : https://github.com/gfvalvo/NewEncoder/tree/master
+- Connexion encodeur optique esp32 : https://electricdiylab.com/how-to-connect-optical-encoder-with-esp32/#Wiring_of_Optical_encoder_and_ESP32
+- Thread sur lecture encodeur rapide : https://forum.arduino.cc/t/arduino-and-high-speed-rotary-encoders/327931/7
+- Thread lecture encodeur state table : https://forum.arduino.cc/t/reading-a-quad-encoder-and-converting-to-a-function/272506/2
+- Thread encodeur interruptions : https://stackoverflow.com/questions/51297371/arduino-rpm-code-with-quadrature-encoder-600ppr
+
 
 ### Shitty issues 
 
