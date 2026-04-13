@@ -1,6 +1,8 @@
 ### TODO SOFTWARE :
+
 ```
- TODO virer les deps inutiles (CRC32 utilisé par librairie)
+TODO MQTT + HomeAssistant ?
+TODO virer les deps inutiles (CRC32 utilisé par librairie)
  TODO voir pour les conflits avec dépendances de command-library
  TODO réorganiser la détection d'erreurs.
 - on a emergencyStop et assertThis un peu interchangeables
@@ -31,17 +33,16 @@
 
 ### Hardware
 
-| Ref         | Description                                  | V(in)    | V(out) | Datasheet                                                      |
-|-------------|----------------------------------------------|----------|--------|----------------------------------------------------------------|
-| LM2596      | Step-down voltage regulator (Buck converter) | 7-30V    | 5.2V   | https://www.ti.com/product/LM2596                              |
-| NodeMCU v3  | ESP8266 module                               | 5-9V     |        | https://github.com/nodemcu/nodemcu-devkit-v3.0                 |
-| 38S6G5      | Optical encoder (360 steps/rev * 4 pulses)   | 5-24V    |        | https://www.mantech.co.za/Datasheets/Products/e38s_jz-yeba.pdf |
-| MG996R      | Continuous rotation servo motor              | 4.8-6.6V |        | https://www.towerpro.com.tw/product/mg996r                     |
-| KY-010      | Optical sensor                               | 3.3-5V   |        | https://sensorkit.joy-it.net/fr/sensorsky-010                  |
+| Ref        | Description                                  | V(in)    | V(out) | Datasheet                                                      |
+| ---------- | -------------------------------------------- | -------- | ------ | -------------------------------------------------------------- |
+| LM2596     | Step-down voltage regulator (Buck converter) | 7-30V    | 5.2V   | https://www.ti.com/product/LM2596                              |
+| NodeMCU v3 | ESP8266 module                               | 5-9V     |        | https://github.com/nodemcu/nodemcu-devkit-v3.0                 |
+| 38S6G5     | Optical encoder (360 steps/rev * 4 pulses)   | 5-24V    |        | https://www.mantech.co.za/Datasheets/Products/e38s_jz-yeba.pdf |
+| MG996R     | Continuous rotation servo motor              | 4.8-6.6V |        | https://www.towerpro.com.tw/product/mg996r                     |
+| KY-010     | Optical sensor                               | 3.3-5V   |        | https://sensorkit.joy-it.net/fr/sensorsky-010                  |
 
 ![Breadboard scheme](refs/electronics_bb.png)
 ![Electro scheme](refs/electronics_scheme.svg)
-
 
 ### Mechanical stuff
 
@@ -52,12 +53,12 @@ https://geargenerator.com/beta/#hk3pLkIpT1P$9k5L5mjM4YitFARO9K3T5M8U4yJl4H8tBo4M
 > Notes : 
 >
 > - Pulses number / panel must be an integer. This is why we have "clean" number of teeth for both gears, related to what is connected to them : 
->   - 62 teeth for panels (divisor of 62 panels, but could be 31, 124...)
->   - 60 teeth for encoder (divisor of 360 steps, but could be 36, 40, 72)
->   - The actual pulses number per panel is `360 steps / rev * 4 pulses / step * (1 / 60 rev) = 24 pulses / panel`
+> - 62 teeth for panels (divisor of 62 panels, but could be 31, 124...)
+> - 60 teeth for encoder (divisor of 360 steps, but could be 36, 40, 72)
+> - The actual pulses number per panel is `360 steps / rev * 4 pulses / step * (1 / 60 rev) = 24 pulses / panel`
 > - However we do not need to have 1 panels full revolution to be equal to 1 encoder revolution
->   - The actual encoder speed is `60/62 = 0.96` of the panels speed 
->   - For each panels full revolution, we have `62/60 = 1.0333` encoder revolutions
+> - The actual encoder speed is `60/62 = 0.96` of the panels speed 
+> - For each panels full revolution, we have `62/60 = 1.0333` encoder revolutions
 
 ### REST call examples
 
@@ -70,6 +71,7 @@ curl -Method Post -Uri "http://192.168.0.222/setCurrentPanel" -Body @{panel=0} -
 ```
 
 ### Useful doc
+
 - Split flap wall decoration SBB/CFF : https://commerce.sbb.ch/en/split-flap-display-wall-decoration-different-special-trains-1100.html
 - Projet split flap diy : https://github.com/davidkingsman/split-flap
 - Lib encoder esp32 (multi modes dont quadrature, avec interruptions) : https:github.com/madhephaestus/ESP32Encoder 
@@ -80,7 +82,6 @@ curl -Method Post -Uri "http://192.168.0.222/setCurrentPanel" -Body @{panel=0} -
 - Thread sur lecture encodeur rapide : https://forum.arduino.cc/t/arduino-and-high-speed-rotary-encoders/327931/7
 - Thread lecture encodeur state table : https://forum.arduino.cc/t/reading-a-quad-encoder-and-converting-to-a-function/272506/2
 - Thread encodeur interruptions : https://stackoverflow.com/questions/51297371/arduino-rpm-code-with-quadrature-encoder-600ppr
-
 
 ### Shitty issues 
 
